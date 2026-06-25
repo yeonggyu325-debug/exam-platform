@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"/>
+  <meta content="width=device-width, initial-scale=1" name="viewport"/>
+  <title>안전담당자 자격인증제</title>
+  <link rel="stylesheet" href="css/styles.css"/>
+</head>
+<body>
+  <div class="app-shell" id="app"></div>
+  <div id="modalRoot"></div>
+
+  <script src="js/utils.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/state.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/exam.js"></script>
+  <script src="js/admin.js"></script>
+  <script src="js/adminUsers.js"></script>
+  <script src="js/adminAffiliations.js"></script>
+  <script src="js/adminQuestions.js"></script>
+  <script src="js/adminSettings.js"></script>
+  <script src="js/adminResults.js"></script>
+  <script src="js/adminStats.js"></script>
+  <script src="js/adminLogs.js"></script>
+
+  <script>
+    // ── 앱 진입점 ──
+    function initApp() {
+      _initSampleData();
+      if (isAppsScriptRuntime() || isExternalApiRuntime()) {
+        loadRemoteData(() => render());
+      } else {
+        loadPersistentData();
+        render();
+      }
+    }
+    initApp();
+  </script>
+</body>
+</html>
