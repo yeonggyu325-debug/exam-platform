@@ -49,7 +49,11 @@ let questionBank = [
 let examSettings = {
   totalQuestions: 7,
   timeLimitMinutes: 20,
+<<<<<<< HEAD
   passingScore: 60,
+=======
+  passingScore: 70,
+>>>>>>> 9c9a0d791fc8b399a76b2de0c1865a21c98ad972
   pointsPerQuestion: 1,
   randomizeQuestions: true,
   randomizeOptions: true,

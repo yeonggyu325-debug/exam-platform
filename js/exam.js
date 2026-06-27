@@ -24,6 +24,7 @@ function renderCandidateDashboard() {
     ${buildHeader()}
     <div class="ready-layout">
 
+<<<<<<< HEAD
       <div class="ready-body" id="readyBody">
 
         <div class="v2-profile-chips">
@@ -32,13 +33,33 @@ function renderCandidateDashboard() {
           <span class="v2-chip"><span class="v2-chip-label">성명</span>${escapeHtml(user.name)}</span>
         </div>
 
+=======
+      <!-- ── 스크롤 콘텐츠 영역 ── -->
+      <div class="ready-body" id="readyBody">
+
+        <!-- 응시자 칩 -->
+        <div class="v2-profile-chips">
+          <span class="v2-chip"><span class="v2-chip-label">소속</span>${escapeHtml(user.department)}</span>
+          <span class="v2-chip"><span class="v2-chip-label">성명</span>${escapeHtml(user.name)}</span>
+          <span class="v2-chip"><span class="v2-chip-label">분기</span>${escapeHtml(quarter)}</span>
+        </div>
+
+        <!-- 안내 카드 -->
+>>>>>>> 9c9a0d791fc8b399a76b2de0c1865a21c98ad972
         <section class="ready-card" aria-labelledby="examReadyTitle">
 
           <div class="ready-card-header">
             <h2 id="examReadyTitle">응시 전 필수 안내</h2>
+<<<<<<< HEAD
             <p>아래 안내사항을 확인한 후 시험을 시작해 주세요.</p>
           </div>
 
+=======
+            <p>원활한 응시를 위해 아래 안내사항을 충분히 확인한 후 시험을 시작해 주세요.</p>
+          </div>
+
+          <!-- 시험 정보 박스 -->
+>>>>>>> 9c9a0d791fc8b399a76b2de0c1865a21c98ad972
           <div class="exam-info-row">
             <div class="exam-info-item">
               <span class="exam-info-label">문항 수</span>
@@ -54,19 +75,30 @@ function renderCandidateDashboard() {
             </div>
           </div>
 
+<<<<<<< HEAD
+=======
+          <!-- 유의사항 -->
+>>>>>>> 9c9a0d791fc8b399a76b2de0c1865a21c98ad972
           <ol class="ready-rules">
             <li>응시 중에는 현재 시험 화면을 유지하고, 안내되지 않은 조작은 삼가해 주시기 바랍니다.</li>
             <li>각 문항의 보기 중 가장 적절한 답안 1개를 선택한 후 다음 문항으로 진행해 주세요.</li>
             <li>모든 문항에 응답해야 제출할 수 있으며, 제출 후에는 답안을 수정할 수 없습니다.</li>
+<<<<<<< HEAD
             <li class="rule-warn">화면 전환은 기록되며, 3회 이상 이탈 시 실격 처리됩니다.</li>
             <li>시험 시작 전 네트워크 상태와 배터리를 반드시 확인해 주세요.</li>
             <li>시험 시작 후에는 임의로 화면을 종료하거나 페이지를 벗어나지 마세요.</li>
+=======
+            <li class="rule-warn">화면 전환은 기록되며, 3회 이상 화면을 이탈할 경우 실격 처리됩니다.</li>
+            <li>시험 시작 전 네트워크 상태와 기기 배터리를 반드시 확인해 주세요.</li>
+            <li>시험 시작 후에는 임의로 화면을 종료하거나 시험 페이지를 벗어나지 마세요.</li>
+>>>>>>> 9c9a0d791fc8b399a76b2de0c1865a21c98ad972
           </ol>
 
           ${shortageWarnings.length ? `<div class="notice danger" style="margin:0 0 4px">${shortageWarnings.map(escapeHtml).join('<br>')}</div>` : ''}
         </section>
       </div>
 
+<<<<<<< HEAD
       <div class="ready-footer">
         <label class="ready-agree" id="agreeLabel">
           <input type="checkbox" id="agreeCheck" onchange="onAgreeChange()" />
@@ -80,6 +112,24 @@ function renderCandidateDashboard() {
           </div>
         </div>
 
+=======
+      <!-- ── 하단 고정 액션 영역 ── -->
+      <div class="ready-footer">
+        <!-- 확인 체크 -->
+        <label class="ready-agree" id="agreeLabel">
+          <input type="checkbox" id="agreeCheck" onchange="onAgreeChange()" />
+          <span class="ready-agree-box"></span>
+          <span class="ready-agree-text">위 사항을 모두 확인하였으며, 안내에 따라 시험에 응시하겠습니다.</span>
+        </label>
+
+        <!-- 카운트다운 도트 -->
+        <div class="countdown-dots-wrap" id="countdownDots">
+          ${[...Array(10)].map((_, i) => `<span class="countdown-dot" id="dot${i}"></span>`).join('')}
+          <span class="countdown-dot-label" id="countdownLabel">10</span>
+        </div>
+
+        <!-- 시작 버튼 -->
+>>>>>>> 9c9a0d791fc8b399a76b2de0c1865a21c98ad972
         <button
           id="startExamBtn"
           class="btn primary ready-start-btn"
@@ -111,6 +161,7 @@ function clearIntroCountdown() {
 
 function startIntroCountdown() {
   state.examIntroReady = false;
+<<<<<<< HEAD
   const duration = 10000; // 10초
   const startTime = performance.now();
 
@@ -123,14 +174,40 @@ function startIntroCountdown() {
     if (elapsed < duration) {
       state.introRaf = requestAnimationFrame(tick);
     } else {
+=======
+  let remaining = 10;
+  const total = 10;
+
+  const update = () => {
+    const filled = total - remaining;
+    for (let i = 0; i < total; i++) {
+      const dot = document.getElementById('dot' + i);
+      if (dot) dot.classList.toggle('active', i < filled);
+    }
+    const label = document.getElementById('countdownLabel');
+    if (remaining > 0) {
+      if (label) label.textContent = remaining;
+    } else {
+      if (label) label.textContent = '✓';
+>>>>>>> 9c9a0d791fc8b399a76b2de0c1865a21c98ad972
       state.examIntroReady = true;
       const checked = document.getElementById('agreeCheck')?.checked;
       const btn = document.getElementById('startExamBtn');
       if (btn) btn.disabled = !checked;
+<<<<<<< HEAD
     }
   };
 
   state.introRaf = requestAnimationFrame(tick);
+=======
+      clearInterval(state.introTimer);
+    }
+    remaining--;
+  };
+
+  update();
+  state.introTimer = setInterval(update, 1000);
+>>>>>>> 9c9a0d791fc8b399a76b2de0c1865a21c98ad972
 }
 
 /* ─── 시험 시작 ───────────────────────────────── */
@@ -310,9 +387,17 @@ function handleTabSwitchViolation(source = "unknown") {
 
   const warnBar = document.getElementById("examWarningBar");
   if (warnBar) {
+<<<<<<< HEAD
     warnBar.innerHTML = `화면 전환 : <strong id="tabSwitchCount">${count}/${examSettings.tabSwitchLimit}</strong>`;
     warnBar.className = count >= examSettings.tabSwitchLimit ? "v2-exam-warn danger" : "v2-exam-warn";
   }
+=======
+    warnBar.textContent = message;
+    warnBar.className   = count >= examSettings.tabSwitchLimit ? "exam-warn-text danger" : "exam-warn-text";
+  }
+  const countNode = document.getElementById("tabSwitchCount");
+  if (countNode) countNode.textContent = `${count}/${examSettings.tabSwitchLimit}`;
+>>>>>>> 9c9a0d791fc8b399a76b2de0c1865a21c98ad972
 
   if (count >= examSettings.tabSwitchLimit) {
     state.currentExam.disqualified            = true;
@@ -369,7 +454,11 @@ function renderExamScreen() {
     <div class="v2-exam-bar" id="examStickyBar">
       <div class="v2-exam-bar-inner">
         <div class="v2-exam-bar-left">
+<<<<<<< HEAD
           <span id="examWarningBar" class="v2-exam-warn">화면 전환 : <strong id="tabSwitchCount">${exam.tabSwitchCount}/${examSettings.tabSwitchLimit}</strong></span>
+=======
+          <span id="examWarningBar" class="v2-exam-warn">이탈경고 <strong id="tabSwitchCount">${exam.tabSwitchCount}/${examSettings.tabSwitchLimit}</strong></span>
+>>>>>>> 9c9a0d791fc8b399a76b2de0c1865a21c98ad972
         </div>
         <div class="v2-exam-bar-center">
           <span class="v2-exam-timer" id="remainingTime">${formatRemainingTime(state.remainingSeconds)}</span>

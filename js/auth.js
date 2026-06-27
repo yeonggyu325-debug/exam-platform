@@ -67,7 +67,11 @@ function renderLogin() {
               <input id="loginName" name="name" autocomplete="name" placeholder="성명을 입력하세요" required />
             </div>
             <button class="btn primary login-submit-btn" type="submit">
+<<<<<<< HEAD
               입장하기
+=======
+              로그인
+>>>>>>> 9c9a0d791fc8b399a76b2de0c1865a21c98ad972
             </button>
           </form>
         </div>
@@ -115,11 +119,15 @@ function handleLogin(event) {
     const activeRecord = getActiveExamRecord(candidate.employeeId);
     if (activeRecord?.exam) {
       state.currentExam = activeRecord.exam;
+<<<<<<< HEAD
       // 재접속 시 이탈해 있던 시간만큼 차감
       const savedRemaining = Number(activeRecord.remainingSeconds || examSettings.timeLimitMinutes * 60);
       const savedAt = activeRecord.updatedAt ? new Date(activeRecord.updatedAt).getTime() : Date.now();
       const elapsedSecs = Math.floor((Date.now() - savedAt) / 1000);
       state.remainingSeconds = Math.max(1, savedRemaining - elapsedSecs);
+=======
+      state.remainingSeconds = Math.max(1, Number(activeRecord.remainingSeconds || examSettings.timeLimitMinutes * 60));
+>>>>>>> 9c9a0d791fc8b399a76b2de0c1865a21c98ad972
       state.currentQuestionIndex = 0;
       state.lastResult = null;
       state.isSubmitting = false;
