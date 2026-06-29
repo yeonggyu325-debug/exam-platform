@@ -54,14 +54,10 @@ function renderAdminHome() {
       <div>
         <h2>관리자 대시보드</h2>
       </div>
-<<<<<<< HEAD
       <div style="display:flex;gap:8px;align-items:center">
         ${getQuotaWarnings().length ? `<span class="badge danger">문항 부족 경고</span>` : ""}
         <button class="btn small" type="button" onclick="adminRefreshData()" title="최신 데이터로 새로고침">↻ 새로고침</button>
       </div>
-=======
-      ${getQuotaWarnings().length ? `<span class="badge danger">문항 부족 경고</span>` : ""}
->>>>>>> 9c9a0d791fc8b399a76b2de0c1865a21c98ad972
     </section>
 
     ${getQuotaWarnings().length ? `<div class="notice danger">${getQuotaWarnings().map(escapeHtml).join("<br>")}</div><br>` : ""}
@@ -211,7 +207,6 @@ function renderResultBadge(result) {
   if (result.disqualified) return `<span class="badge danger">실격</span>`;
   return `<span class="badge ${result.passed ? "success" : "danger"}">${result.passed ? "합격" : "불합격"}</span>`;
 }
-<<<<<<< HEAD
 
 function adminRefreshData() {
   if (isAppsScriptRuntime() || isExternalApiRuntime()) {
@@ -221,5 +216,3 @@ function adminRefreshData() {
     renderAdminDashboard();
   }
 }
-=======
->>>>>>> 9c9a0d791fc8b399a76b2de0c1865a21c98ad972
