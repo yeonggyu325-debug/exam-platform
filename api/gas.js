@@ -1,6 +1,10 @@
+// Vercel Serverless Function - Google Apps Script 프록시
+// 파일 위치: api/gas.js
+
 const GAS_URL = "https://script.google.com/macros/s/AKfycbyRhmxkBHyPqaD2dCFK46g0mUS2c0k6t5rJSj6fY61xiv3v4TAzhxIPtaFjX153OHcs/exec";
 
 export default async function handler(req, res) {
+  // CORS 헤더
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
