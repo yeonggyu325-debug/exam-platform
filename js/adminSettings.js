@@ -1,55 +1,90 @@
 "use strict";
 
-// 책임: 통계 시각화 (점수 분포, 부서별 평균, 합격 비율, 카테고리 문항 수)
+// 책임: 시험 설정 폼 렌더 및 즉시 반영
 
-function renderStatsManager() {
-  const currentResults = examResults.filter(r => r.quarter === getCurrentQuarter());
-  const scoreDist      = getScoreDistribution(examResults);
-  const categoryCounts = getCategoryCounts().map(item => ({ label: item.category, value: item.count }));
-  const statusRatio    = [
-    { label: "합격",   value: examResults.filter(r =>  r.passed && !r.disqualified).length },
-    { label: "불합격", value: examResults.filter(r => !r.passed && !r.disqualified).length },
-    { label: "실격",   value: examResults.filter(r =>  r.disqualified).length }
-  ];
-  const deptAvg = getDepartments().map(dep => {
-    const rows = examResults.filter(r => r.department === dep);
-    const avg  = rows.length ? Math.round(rows.reduce((sum, r) => sum + r.percentageScore, 0) / rows.length) : 0;
-    return { label: dep, value: avg };
-  });
-
+function renderSettingsManager() {
+  const allCategories = getCategories();
   return `
-    <section class="section-head">
-      <div>
-        <h2>통계 시각화</h2>
+    <section class="card">
+      <div class="section-head">
+        <div>
+          <h2>시험 설정</h2>
+        </div>
       </div>
-    </section>
 
-    <div class="grid two">
-      <section class="card">
-        <div class="section-head"><h3>점수 분포 바 차트</h3></div>
-        ${renderBarChart(scoreDist)}
-      </section>
-      <section class="card">
-        <div class="section-head"><h3>부서별 평균 점수</h3></div>
-        ${renderBarChart(deptAvg)}
-      </section>
-      <section class="card">
-        <div class="section-head"><h3>합격/불합격/실격 비율</h3></div>
-        ${renderBarChart(statusRatio)}
-      </section>
-      <section class="card">
-        <div class="section-head"><h3>카테고리별 문항 수</h3></div>
-        ${renderBarChart(categoryCounts)}
-      </section>
-    </div>
+      ${getQuotaWarnings().length ? `<div class="notice danger">${getQuotaWarnings().map(escapeHtml).join("<br>")}</div><br>` : ""}
 
-    <section class="card" style="margin-top:16px">
-      <div class="section-head"><h3>이번 분기 요약</h3></div>
-      <div class="grid three">
-        <div class="metric"><div class="label">이번 분기 결과 수</div><div class="value">${currentResults.length}</div></div>
-        <div class="metric"><div class="label">최고 점수</div><div class="value">${currentResults.length ? Math.max(...currentResults.map(r => r.percentageScore)) : 0}</div></div>
-        <div class="metric"><div class="label">실격자</div><div class="value">${currentResults.filter(r => r.disqualified).length}</div></div>
+      <form onchange="updateExamSettings(event)">
+        <div class="grid three">
+          <div class="field">
+            <label for="settingTotal">분기별 출제 문항 수</label>
+            <input id="settingTotal" name="totalQuestions" type="number" min="1" value="${examSettings.totalQuestions}" readonly>
+          </div>
+          <div class="field">
+            <label for="settingTime">제한 시간(분)</label>
+            <input id="settingTime" name="timeLimitMinutes" type="number" min="1" value="${examSettings.timeLimitMinutes}">
+          </div>
+          <div class="field">
+            <label for="settingPass">합격 기준 점수</label>
+            <input id="settingPass" name="passingScore" type="number" min="0" max="100" value="${examSettings.passingScore}">
+          </div>
+          <div class="field">
+            <label for="settingTabLimit">탭 전환 허용 횟수</label>
+            <input id="settingTabLimit" name="tabSwitchLimit" type="number" min="1" value="${examSettings.tabSwitchLimit}">
+          </div>
+          <div class="field">
+            <label for="settingQuestionRandom">문제 랜덤 여부</label>
+            <select id="settingQuestionRandom" name="randomizeQuestions">
+              ${optionHtml("true",  String(examSettings.randomizeQuestions), "ON")}
+              ${optionHtml("false", String(examSettings.randomizeQuestions), "OFF")}
+            </select>
+          </div>
+          <div class="field">
+            <label for="settingOptionRandom">보기 랜덤 여부</label>
+            <select id="settingOptionRandom" name="randomizeOptions">
+              ${optionHtml("true",  String(examSettings.randomizeOptions), "ON")}
+              ${optionHtml("false", String(examSettings.randomizeOptions), "OFF")}
+            </select>
+          </div>
+        </div>
+
+        <hr style="border:0;border-top:1px solid var(--line);margin:18px 0">
+
+        <h3>카테고리별 출제 수</h3>
+        <div class="grid three">
+          ${allCategories.map(category => `
+            <div class="field">
+              <label for="quota_${escapeHtml(category)}">${escapeHtml(category)}</label>
+              <input id="quota_${escapeHtml(category)}" name="quota:${escapeHtml(category)}"
+                type="number" min="0" value="${examSettings.categoryQuota[category] ?? 0}">
+            </div>
+          `).join("")}
+        </div>
+      </form>
+
+      <div class="notice" style="margin-top:14px">
+        현재 카테고리별 출제 수 합계는
+        <strong>${Object.values(examSettings.categoryQuota).reduce((a, b) => a + Number(b), 0)}</strong>문항입니다.
+        분기별 출제 문항 수는 카테고리별 출제 수 합계로 자동 계산됩니다.
       </div>
     </section>
   `;
+}
+
+function updateExamSettings(event) {
+  const target = event.target;
+  if (!target.name) return;
+
+  if (target.name.startsWith("quota:")) {
+    const category = target.name.replace("quota:", "");
+    examSettings.categoryQuota[category] = Math.max(0, Number(target.value || 0));
+  } else if (target.name === "randomizeQuestions" || target.name === "randomizeOptions") {
+    examSettings[target.name] = target.value === "true";
+  } else if (target.name !== "totalQuestions") {
+    examSettings[target.name] = Math.max(1, Number(target.value || 1));
+  }
+
+  examSettings.totalQuestions = Object.values(examSettings.categoryQuota).reduce((a, b) => a + Number(b), 0);
+  savePersistentData();
+  renderAdminDashboard();
 }
