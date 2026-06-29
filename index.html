@@ -1682,6 +1682,10 @@ function appendResultToSheet(result, log) {
   }
 }
 
+function getAffiliations() {
+  return managedAffiliations || [];
+}
+
 function affiliationOptions(selected = "") {
   return managedAffiliations.map(dep => optionHtml(dep, selected)).join("");
 }
@@ -3658,11 +3662,14 @@ function renderLogManager() {
     // ── 앱 진입점 ──
     function initApp() {
       _initSampleData();
+      // 로컬 데이터로 즉시 렌더링 (빠른 초기 화면)
+      loadPersistentData();
+      render();
+      // 백그라운드에서 원격 데이터 동기화
       if (isAppsScriptRuntime() || isExternalApiRuntime()) {
-        loadRemoteData(() => render());
-      } else {
-        loadPersistentData();
-        render();
+        loadRemoteData((ok) => {
+          if (ok) render(); // 원격 데이터 받으면 갱신
+        });
       }
     }
     initApp();
