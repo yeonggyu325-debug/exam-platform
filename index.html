@@ -1622,7 +1622,12 @@ function applyRemoteData(data) {
   if (data && Array.isArray(data.examResults)) examResults = data.examResults;
   if (data && Array.isArray(data.activityLogs)) activityLogs = data.activityLogs;
   if (data && Array.isArray(data.activeExams)) activeExams = data.activeExams;
-  if (data && Array.isArray(data.managedAffiliations)) managedAffiliations = data.managedAffiliations;
+  if (data && Array.isArray(data.managedAffiliations)) {
+    // 구버전(문자열 배열) → 신버전(객체 배열) 자동 마이그레이션
+    managedAffiliations = data.managedAffiliations.map(a =>
+      typeof a === 'string' ? { name: a, type: '이루자' } : a
+    );
+  }
   mergeLocalActiveExams();
 }
 
@@ -1688,7 +1693,16 @@ function getAffiliations() {
 }
 
 function affiliationOptions(selected = "") {
-  return managedAffiliations.map(dep => optionHtml(dep, selected)).join("");
+  const iruja = managedAffiliations.filter(a => a.type === "이루자");
+  const partner = managedAffiliations.filter(a => a.type === "협력사");
+  let html = "";
+  if (iruja.length) {
+    html += `<optgroup label="이루자">${iruja.map(a => optionHtml(a.name, selected)).join("")}</optgroup>`;
+  }
+  if (partner.length) {
+    html += `<optgroup label="협력사">${partner.map(a => optionHtml(a.name, selected)).join("")}</optgroup>`;
+  }
+  return html;
 }
 
 function savePersistentData() {
@@ -1711,7 +1725,11 @@ function loadPersistentData() {
     if (Array.isArray(data.examResults)) examResults = data.examResults;
     if (Array.isArray(data.activityLogs)) activityLogs = data.activityLogs;
     if (Array.isArray(data.activeExams)) activeExams = data.activeExams;
-    if (Array.isArray(data.managedAffiliations)) managedAffiliations = data.managedAffiliations;
+    if (Array.isArray(data.managedAffiliations)) {
+      managedAffiliations = data.managedAffiliations.map(a =>
+        typeof a === 'string' ? { name: a, type: '이루자' } : a
+      );
+    }
     return true;
   } catch (error) {
     console.warn("저장소 복원에 실패했습니다.", error);
@@ -1766,7 +1784,15 @@ let users = [
   { employeeId: "ADM-0001",      department: "환경안전",     name: "ehs1985", role: "admin" }
 ];
 
-let managedAffiliations = ["생산기술", "신기술개발", "연구소", "공정기술", "고객기술지원", "바른중량", "대한수출포장"];
+let managedAffiliations = [
+  { name: "생산기술",   type: "이루자" },
+  { name: "신기술개발", type: "이루자" },
+  { name: "연구소",     type: "이루자" },
+  { name: "공정기술",   type: "이루자" },
+  { name: "고객기술지원", type: "이루자" },
+  { name: "바른중량",   type: "협력사" },
+  { name: "대한수출포장", type: "협력사" }
+];
 
 
 let questionBank = [
@@ -1848,6 +1874,7 @@ const state = {
   remainingSeconds: 0,
   lastResult: null,
   isSubmitting: false,
+  isTestMode: false,
   examIntroReady: false,
   examIntroRemaining: 10,
   introTimerId: null,
@@ -1917,6 +1944,7 @@ function logout() {
   state.lastResult   = null;
   state.loginError   = "";
   state.isSubmitting = false;
+  state.isTestMode   = false;
   render();
 }
 
@@ -1936,10 +1964,17 @@ function renderLogin() {
           ${state.loginError ? `<div class="notice danger login-notice" role="alert">${escapeHtml(state.loginError)}</div>` : ""}
           <form onsubmit="handleLogin(event)" class="login-form">
             <div class="field">
+              <label for="loginType">구분</label>
+              <select id="loginType" name="type" onchange="updateLoginDepartments(this.value)">
+                <option value="">구분을 선택하세요</option>
+                <option value="이루자">이루자</option>
+                <option value="협력사">협력사</option>
+              </select>
+            </div>
+            <div class="field">
               <label for="loginDepartment">소속</label>
-              <select id="loginDepartment" name="department" autocomplete="organization">
-                <option value="">소속을 선택하세요</option>
-                ${affiliationOptions()}
+              <select id="loginDepartment" name="department" autocomplete="organization" disabled>
+                <option value="">구분을 먼저 선택하세요</option>
               </select>
             </div>
             <div class="field">
@@ -1954,7 +1989,27 @@ function renderLogin() {
       </div>
     </main>
   `;
-  setTimeout(() => document.getElementById("loginDepartment")?.focus(), 0);
+  setTimeout(() => document.getElementById("loginType")?.focus(), 0);
+}
+
+
+function updateLoginDepartments(type) {
+  const sel = document.getElementById("loginDepartment");
+  if (!sel) return;
+  if (!type) {
+    sel.innerHTML = "<option value=''>구분을 먼저 선택하세요</option>";
+    sel.disabled = true;
+    return;
+  }
+  const list = managedAffiliations.filter(a =>
+    (typeof a === "string" ? "이루자" : a.type) === type
+  );
+  sel.disabled = false;
+  sel.innerHTML = `<option value="">소속을 선택하세요</option>` +
+    list.map(a => {
+      const name = typeof a === "string" ? a : a.name;
+      return `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`;
+    }).join("");
 }
 
 function handleLogin(event) {
@@ -1962,18 +2017,31 @@ function handleLogin(event) {
   const form       = new FormData(event.currentTarget);
   const department = String(form.get("department") || "").trim();
   const name       = String(form.get("name") || "").trim();
+  const type       = String(form.get("type") || "").trim();
 
   if (name === "ehs1985") {
     const admin = users.find(user => user.role === "admin") || { employeeId: "ADM-0001", department: "환경안전", name: "ehs1985", role: "admin" };
     state.currentUser = admin;
     state.view        = "admin";
     state.loginError  = "";
+    state.isTestMode  = false;
     render();
     return;
   }
 
-  if (!department) {
-    state.loginError = "응시자는 소속을 선택해야 합니다.";
+  // 테스트 모드: 소속 무관, "테스트" 카테고리 문제만 출제, DB 저장 없음
+  if (name === "test") {
+    state.currentUser = { employeeId: "TEST-0001", department: "테스트", name: "test", role: "candidate" };
+    state.isTestMode  = true;
+    state.loginError  = "";
+    state.lastResult  = null;
+    state.view        = "candidate";
+    render();
+    return;
+  }
+
+  if (!type || !department) {
+    state.loginError = !type ? "구분을 선택해 주세요." : "소속을 선택해 주세요.";
     renderLogin();
     return;
   }
@@ -2170,12 +2238,12 @@ function startExam() {
   }
   clearIntroCountdown();
   const user = state.currentUser;
-  if (hasAttemptedThisQuarter(user.employeeId)) {
+  if (!state.isTestMode && hasAttemptedThisQuarter(user.employeeId)) {
     alert("이번 분기에는 이미 응시 완료했습니다.");
     renderCandidateDashboard();
     return;
   }
-  if (getQuotaWarnings().length > 0) {
+  if (!state.isTestMode && getQuotaWarnings().length > 0) {
     alert("문제은행 수량이 부족하여 시험을 시작할 수 없습니다. 관리자에게 문의하세요.");
     return;
   }
@@ -2210,12 +2278,24 @@ function startExam() {
 
 function generateExamQuestions() {
   let selected = [];
-  Object.entries(examSettings.categoryQuota).forEach(([category, count]) => {
-    const pool   = questionBank.filter(q => q.active && q.category === category);
-    const picked = (examSettings.randomizeQuestions ? shuffleArray(pool) : [...pool]).slice(0, Number(count));
-    selected.push(...picked);
-  });
-  if (examSettings.randomizeQuestions) selected = shuffleArray(selected);
+
+  // 테스트 모드: "테스트" 카테고리 문제 전부 출제
+  if (state.isTestMode) {
+    const pool = questionBank.filter(q => q.category === "테스트");
+    selected = examSettings.randomizeQuestions ? shuffleArray(pool) : [...pool];
+    // 테스트 문제가 없으면 전체 문제 중 랜덤 최대 5개
+    if (!selected.length) {
+      const all = questionBank.filter(q => q.active);
+      selected = shuffleArray(all).slice(0, Math.min(5, all.length));
+    }
+  } else {
+    Object.entries(examSettings.categoryQuota).forEach(([category, count]) => {
+      const pool   = questionBank.filter(q => q.active && q.category === category);
+      const picked = (examSettings.randomizeQuestions ? shuffleArray(pool) : [...pool]).slice(0, Number(count));
+      selected.push(...picked);
+    });
+    if (examSettings.randomizeQuestions) selected = shuffleArray(selected);
+  }
 
   return selected.map(question => {
     const indexedOptions     = question.options.map((text, originalIndex) => ({ text, originalIndex }));
@@ -2599,12 +2679,13 @@ function submitExam(isAutoSubmit = false, forceDisqualified = false, submitMessa
     createdAt: result.submittedAt
   };
 
-  examResults.push(result);
-  activityLogs.push(submitLog);
-  clearActiveExamRecord(state.currentUser.employeeId, state.currentExam.quarter);
-
-  savePersistentData();
-  appendResultToSheet(result, submitLog);
+  if (!state.isTestMode) {
+    examResults.push(result);
+    activityLogs.push(submitLog);
+    clearActiveExamRecord(state.currentUser.employeeId, state.currentExam.quarter);
+    savePersistentData();
+    appendResultToSheet(result, submitLog);
+  }
 
   state.lastResult   = result;
   state.currentExam  = null;
@@ -2678,56 +2759,84 @@ function renderResultScreen() {
 }
 
 function launchConfetti() {
+  // 기존 캔버스 제거
+  const existing = document.getElementById('confettiCanvas');
+  if (existing) existing.remove();
+
   const canvas = document.createElement('canvas');
   canvas.id = 'confettiCanvas';
   canvas.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:9999;';
   document.body.appendChild(canvas);
-
   const ctx = canvas.getContext('2d');
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
 
-  const colors = ['#4f8ef7','#f7c948','#f74f4f','#4ff7a1','#c44ff7','#f7924f'];
-  const particles = Array.from({length: 120}, () => ({
+  const colors = ['#4f8ef7','#f7c948','#f74f4f','#4ff7a1','#c44ff7','#f7924f','#ff69b4','#00e5ff','#ffeb3b','#76ff03'];
+  const shapes = ['rect','circle','ribbon'];
+
+  const particles = Array.from({length: 280}, () => ({
     x: Math.random() * canvas.width,
-    y: -10 - Math.random() * 60,
-    r: 4 + Math.random() * 6,
-    d: 2 + Math.random() * 3,
+    y: -20 - Math.random() * canvas.height * 0.5,
+    w: 6 + Math.random() * 10,
+    h: 4 + Math.random() * 6,
     color: colors[Math.floor(Math.random() * colors.length)],
-    tilt: Math.random() * 10 - 5,
-    tiltAngle: 0,
-    tiltAngleInc: 0.05 + Math.random() * 0.07,
-    alpha: 1
+    shape: shapes[Math.floor(Math.random() * shapes.length)],
+    vx: (Math.random() - 0.5) * 4,
+    vy: 2 + Math.random() * 5,
+    angle: Math.random() * Math.PI * 2,
+    spin: (Math.random() - 0.5) * 0.25,
+    alpha: 1,
+    gravity: 0.08 + Math.random() * 0.06
   }));
 
   let frame = 0;
-  const maxFrames = 180;
+  const maxFrames = 240;
 
   function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     particles.forEach(p => {
-      ctx.beginPath();
-      ctx.lineWidth = p.r;
-      ctx.strokeStyle = p.color;
+      ctx.save();
       ctx.globalAlpha = p.alpha;
-      ctx.moveTo(p.x + p.tilt + p.r / 4, p.y);
-      ctx.lineTo(p.x + p.tilt, p.y + p.tilt + p.r / 4);
-      ctx.stroke();
-      p.tiltAngle += p.tiltAngleInc;
-      p.y += (Math.cos(p.d) + p.r / 10) * 1.4;
-      p.x += Math.sin(frame / 20) * 1.2;
-      p.tilt = Math.sin(p.tiltAngle) * 12;
-      if (frame > 80) p.alpha = Math.max(0, p.alpha - 0.012);
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.angle);
+      ctx.fillStyle = p.color;
+      if (p.shape === 'rect') {
+        ctx.fillRect(-p.w/2, -p.h/2, p.w, p.h);
+      } else if (p.shape === 'circle') {
+        ctx.beginPath();
+        ctx.arc(0, 0, p.w/2, 0, Math.PI*2);
+        ctx.fill();
+      } else {
+        ctx.beginPath();
+        ctx.moveTo(-p.w/2, 0);
+        ctx.quadraticCurveTo(0, -p.h, p.w/2, 0);
+        ctx.quadraticCurveTo(0, p.h, -p.w/2, 0);
+        ctx.fill();
+      }
+      ctx.restore();
+      p.vy += p.gravity;
+      p.x += p.vx + Math.sin(frame * 0.05 + p.vy) * 0.8;
+      p.y += p.vy;
+      p.angle += p.spin;
+      if (frame > 140) p.alpha = Math.max(0, p.alpha - 0.008);
     });
-    ctx.globalAlpha = 1;
     frame++;
-    if (frame < maxFrames) {
-      requestAnimationFrame(draw);
-    } else {
-      canvas.remove();
-    }
+    if (frame < maxFrames) requestAnimationFrame(draw);
+    else canvas.remove();
   }
+
+  // 3번 연속 발사
   draw();
+  setTimeout(() => {
+    particles.forEach(p => { p.y = -20 - Math.random() * 80; p.alpha = 1; p.vy = 1 + Math.random() * 4; });
+    frame = 0;
+    draw();
+  }, 600);
+  setTimeout(() => {
+    particles.forEach(p => { p.y = -20 - Math.random() * 120; p.alpha = 1; p.vy = 1 + Math.random() * 4; });
+    frame = 0;
+    draw();
+  }, 1200);
 }
 
 
@@ -2735,6 +2844,20 @@ function launchConfetti() {
 "use strict";
 
 // 책임: 관리자 레이아웃, 사이드바 네비게이션, 대시보드 홈, 공통 차트/뱃지 헬퍼
+
+
+function refreshFromRemote() {
+  const btn = document.getElementById("refreshBtn");
+  if (btn) { btn.disabled = true; btn.textContent = "⟳ 동기화 중..."; }
+  loadRemoteData((ok) => {
+    if (ok) {
+      render();
+    } else {
+      if (btn) { btn.disabled = false; btn.textContent = "⟳ 새로고침"; }
+      alert("서버 연결에 실패했습니다. 로컬 데이터를 표시합니다.");
+    }
+  });
+}
 
 function renderAdminDashboard() {
   clearTimer();
@@ -2965,7 +3088,10 @@ function renderUserManager() {
         <div>
           <h2>응시자 관리</h2>
         </div>
-        <button class="btn primary" type="button" onclick="openUserModal()">응시자 추가</button>
+        <div style="display:flex;gap:8px">
+          <button id="refreshBtn" class="btn" type="button" onclick="refreshFromRemote()">⟳ 새로고침</button>
+          <button class="btn primary" type="button" onclick="openUserModal()">응시자 추가</button>
+        </div>
       </div>
 
       <div class="filters" style="grid-template-columns:1.4fr 1fr 1fr auto">
@@ -3053,7 +3179,14 @@ function openUserModal() {
             <label for="newUserDepartment">소속</label>
             <select id="newUserDepartment" name="department" required>
               <option value="">소속을 선택하세요</option>
-              ${affiliations.map(a => `<option value="${escapeHtml(typeof a === 'string' ? a : a.name)}">${escapeHtml(typeof a === 'string' ? a : a.name)}</option>`).join("")}
+              ${(() => {
+                const iruja = affiliations.filter(a => a.type === "이루자" || !a.type);
+                const partner = affiliations.filter(a => a.type === "협력사");
+                let opts = "";
+                if (iruja.length) opts += `<optgroup label="이루자">${iruja.map(a => `<option value="${escapeHtml(typeof a==='string'?a:a.name)}">${escapeHtml(typeof a==='string'?a:a.name)}</option>`).join("")}</optgroup>`;
+                if (partner.length) opts += `<optgroup label="협력사">${partner.map(a => `<option value="${escapeHtml(typeof a==='string'?a:a.name)}">${escapeHtml(typeof a==='string'?a:a.name)}</option>`).join("")}</optgroup>`;
+                return opts;
+              })()}
             </select>
           </div>
           <div class="field">
@@ -3133,58 +3266,90 @@ function deleteCandidate(employeeId) {
 "use strict";
 
 function renderAffiliationManager() {
+  const iruja   = managedAffiliations.filter(a => a.type === "이루자");
+  const partner = managedAffiliations.filter(a => a.type === "협력사");
+
+  function renderGroup(list, type) {
+    const label = type === "이루자" ? "부서" : "협력사명";
+    return `
+      <div class="affiliation-add-form" style="margin-bottom:10px">
+        <div class="field">
+          <input name="affiliation" placeholder="새 ${label} 입력" required
+            onkeydown="if(event.key==='Enter'){event.preventDefault();addAffiliationDirect(this.value,'${type}',this);}">
+          <input type="hidden" name="affiliationType" value="${type}">
+        </div>
+        <button class="btn primary" type="button"
+          onclick="const inp=this.previousElementSibling.previousElementSibling;addAffiliationDirect(inp.value,'${type}',inp)">
+          + 추가
+        </button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>${type === "이루자" ? "부서명" : "협력사명"}</th><th>현재 응시자 수</th><th>관리</th></tr></thead>
+          <tbody>
+            ${list.length === 0 ? `<tr><td colspan="3" class="empty">등록된 ${label}이 없습니다.</td></tr>` :
+              list.map(dep => `
+                <tr>
+                  <td><strong>${escapeHtml(dep.name)}</strong></td>
+                  <td>${users.filter(u => u.role === "candidate" && u.department === dep.name).length}명</td>
+                  <td><button class="btn danger small" onclick="removeAffiliation('${escapeHtml(dep.name)}')">삭제</button></td>
+                </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>`;
+  }
+
   return `
     <section class="card">
       <div class="section-head">
+        <div><h2>소속 관리</h2></div>
+      </div>
+      <div class="grid two" style="gap:20px;align-items:start">
         <div>
-          <h2>소속 관리</h2>
+          <h3 style="margin:0 0 12px;color:var(--primary);font-size:15px">🏢 이루자 (부서)</h3>
+          ${renderGroup(iruja, "이루자")}
+        </div>
+        <div>
+          <h3 style="margin:0 0 12px;color:var(--success);font-size:15px">🤝 협력사</h3>
+          ${renderGroup(partner, "협력사")}
         </div>
       </div>
-
-      <form class="affiliation-add-form" onsubmit="addAffiliation(event)">
-        <div class="field">
-          <label for="newAffiliationName">새 소속명</label>
-          <input id="newAffiliationName" name="affiliation" required>
-        </div>
-        <button class="btn primary" type="submit">소속 추가</button>
-      </form>
-
-      <div class="table-wrap" style="margin-top:16px">
-        <table>
-          <thead><tr><th>현재 선택 가능 소속</th><th>현재 응시자 수</th><th>관리</th></tr></thead>
-          <tbody>
-            ${managedAffiliations.map(dep => `
-              <tr>
-                <td>${escapeHtml(dep)}</td>
-                <td>${getCandidateUsers().filter(user => user.department === dep).length}명</td>
-                <td><button class="btn small danger" type="button" onclick="removeAffiliation('${escapeHtml(dep)}')">목록에서 제거</button></td>
-              </tr>
-            `).join("") || `<tr><td colspan="3" class="empty">등록된 소속이 없습니다.</td></tr>`}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  `;
+    </section>`;
 }
+
+function addAffiliationDirect(name, type, inputEl) {
+  name = String(name || "").trim();
+  if (!name) return;
+  if (managedAffiliations.some(a => a.name === name)) {
+    alert("이미 등록된 소속입니다."); return;
+  }
+  managedAffiliations.push({ name, type });
+  managedAffiliations.sort((a, b) => a.name.localeCompare(b.name));
+  if (inputEl) inputEl.value = "";
+  savePersistentData();
+  renderAdminDashboard();
+}
+
 
 function addAffiliation(event) {
   event.preventDefault();
   const form = new FormData(event.currentTarget);
   const name = String(form.get("affiliation") || "").trim();
+  const type = String(form.get("affiliationType") || "이루자").trim();
   if (!name) return;
-  if (managedAffiliations.includes(name)) {
+  if (managedAffiliations.some(a => a.name === name)) {
     alert("이미 등록된 소속입니다.");
     return;
   }
-  managedAffiliations.push(name);
-  managedAffiliations.sort();
+  managedAffiliations.push({ name, type });
+  managedAffiliations.sort((a, b) => a.name.localeCompare(b.name));
   savePersistentData();
   renderAdminDashboard();
 }
 
 function removeAffiliation(name) {
   if (!confirm(`${name} 소속을 선택 목록에서 제거할까요? 기존 응시자 기록의 소속 데이터는 유지됩니다.`)) return;
-  managedAffiliations = managedAffiliations.filter(dep => dep !== name);
+  managedAffiliations = managedAffiliations.filter(a => a.name !== name);
   savePersistentData();
   renderAdminDashboard();
 }
@@ -3463,6 +3628,7 @@ function renderResultsManager() {
         <div>
           <h2>결과 관리</h2>
         </div>
+        <button id="refreshBtn" class="btn" type="button" onclick="refreshFromRemote()">⟳ 새로고침</button>
       </div>
 
       <div class="filters">
@@ -3628,6 +3794,7 @@ function renderLogManager() {
         <div>
           <h2>응시 로그</h2>
         </div>
+        <button id="refreshBtn" class="btn" type="button" onclick="refreshFromRemote()">⟳ 새로고침</button>
       </div>
       <div class="table-wrap">
         <table>
