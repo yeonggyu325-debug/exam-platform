@@ -62,12 +62,14 @@ function renderResultsManager() {
           <div class="table-wrap">
             <table>
               <thead>
-                <tr><th>응시일시</th><th>소속</th><th>성명</th><th>정답</th><th>점수</th><th>최종 상태</th><th>자격 유효기간</th><th>탭 전환</th></tr>
+                <tr><th>응시일시</th><th>제출일시</th><th>소요시간</th><th>소속</th><th>성명</th><th>정답</th><th>점수</th><th>최종 상태</th><th>자격 유효기간</th><th>탭 전환</th></tr>
               </thead>
               <tbody>
                 ${grouped[quarter].map(r => `
                   <tr>
+                    <td>${r.startedAt ? formatDateTime(r.startedAt) : "-"}</td>
                     <td>${formatDateTime(r.submittedAt)}</td>
+                    <td>${(r.startedAt && r.submittedAt) ? (() => { const mins = Math.round((new Date(r.submittedAt) - new Date(r.startedAt)) / 60000); return mins + "분"; })() : "-"}</td>
                     <td>${escapeHtml(r.department)}</td>
                     <td>${escapeHtml(r.name)}</td>
                     <td>${r.correctCount}/${r.totalCount}</td>
