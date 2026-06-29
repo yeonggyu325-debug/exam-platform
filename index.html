@@ -4,6 +4,7 @@
   <meta charset="utf-8"/>
   <meta content="width=device-width, initial-scale=1" name="viewport"/>
   <title>안전담당자 자격인증제</title>
+  <script>window.HNIRUJA_API_BASE = "/api/gas";</script>
   <style>
 @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css");
 
@@ -3049,10 +3050,10 @@ function openUserModal() {
         <h2 id="userModalTitle">응시자 추가</h2>
         <form onsubmit="addUser(event)">
           <div class="field">
-            <label for="newUserDepartment">부서</label>
+            <label for="newUserDepartment">소속</label>
             <select id="newUserDepartment" name="department" required>
-              <option value="">부서를 선택하세요</option>
-              ${affiliations.map(a => `<option value="${escapeHtml(a.name)}">${escapeHtml(a.name)}</option>`).join("")}
+              <option value="">소속을 선택하세요</option>
+              ${affiliations.map(a => `<option value="${escapeHtml(typeof a === 'string' ? a : a.name)}">${escapeHtml(typeof a === 'string' ? a : a.name)}</option>`).join("")}
             </select>
           </div>
           <div class="field">
@@ -3096,7 +3097,7 @@ function addUser(event) {
   const employeeId = generateEmployeeId();
 
   if (users.some(user => user.role === "candidate" && user.department === department && user.name === name)) {
-    alert("같은 부서와 성명의 응시자가 이미 있습니다. 로그인 혼동 방지를 위해 이름 표기를 구분해 주세요.");
+    alert("같은 소속과 성명의 응시자가 이미 있습니다. 로그인 혼동 방지를 위해 이름 표기를 구분해 주세요.");
     return;
   }
   users.push({ employeeId, department, name, role: "candidate" });
@@ -3589,7 +3590,7 @@ function renderStatsManager() {
         ${renderBarChart(scoreDist)}
       </section>
       <section class="card">
-        <div class="section-head"><h3>부서별 평균 점수</h3></div>
+        <div class="section-head"><h3>소속별 평균 점수</h3></div>
         ${renderBarChart(deptAvg)}
       </section>
       <section class="card">
@@ -3631,7 +3632,7 @@ function renderLogManager() {
       <div class="table-wrap">
         <table>
           <thead>
-            <tr><th>일시</th><th>부서</th><th>성명</th><th>유형</th><th>탭 전환 횟수</th><th>내용</th></tr>
+            <tr><th>일시</th><th>소속</th><th>성명</th><th>유형</th><th>탭 전환 횟수</th><th>내용</th></tr>
           </thead>
           <tbody>
             ${logs.map(log => `
@@ -3674,7 +3675,5 @@ function renderLogManager() {
     }
     initApp();
   </script>
-
-  <script>window.HNIRUJA_API_BASE = "/api/gas";</script>
 </body>
 </html>
