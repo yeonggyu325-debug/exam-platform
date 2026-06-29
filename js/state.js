@@ -18,6 +18,8 @@ const state = {
   examIntroReady: false,
   examIntroRemaining: 10,
   introTimerId: null,
+  introRaf: null,
+  _tabHiddenAt: null,
   filters: {
     userSearch: "",
     userDepartment: "전체",
