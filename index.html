@@ -2263,7 +2263,7 @@ function clearIntroCountdown() {
 
 function startIntroCountdown() {
   state.examIntroReady = false;
-  const duration = 10000; // 10초
+  const duration = 20000; // 20초
   const startTime = performance.now();
 
   const tick = (now) => {
@@ -2288,7 +2288,7 @@ function startIntroCountdown() {
 /* ─── 시험 시작 ───────────────────────────────── */
 function startExam() {
   if (!state.examIntroReady) {
-    alert("안내문을 10초 이상 확인한 뒤 응시할 수 있습니다.");
+    alert("안내문을 20초 이상 확인한 뒤 응시할 수 있습니다.");
     return;
   }
   clearIntroCountdown();
