@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="ko" style="overscroll-behavior-y:none">
 <head>
   <meta charset="utf-8"/>
   <meta content="width=device-width, initial-scale=1" name="viewport"/>
@@ -1410,9 +1410,13 @@ tr:last-child td { border-bottom: 0; }
   margin-right: 4px;
 }
 
+
+  html, body {
+    overscroll-behavior-y: none;
+  }
 </style>
 </head>
-<body>
+<body style="overscroll-behavior-y:none">
   <div class="app-shell" id="app"></div>
   <div id="modalRoot"></div>
 
@@ -1912,11 +1916,11 @@ function render() {
       }));
     } catch(e) {}
   }
-  // 로딩 중 새로고침 차단 / 로딩 아닐 때 해제
-  if (state.view === "loading") {
-    addLoadingGuards();
+  // 관리자 화면에서만 새로고침 허용, 나머지 모든 화면 차단
+  if (state.view === "admin") {
+    removeAppRefreshGuard();
   } else {
-    removeLoadingGuards();
+    addAppRefreshGuard();
   }
   if (state.view === "loading")   renderLoadingScreen();
   if (state.view === "login")     renderLogin();
@@ -2445,32 +2449,56 @@ function handlePreExamVisibility() {
   }
 }
 
-// ── 로딩 중 새로고침 차단 가드 ────────────────────────────────────────────────
-function _loadingBeforeUnload(e) {
+// ── 새로고침 차단 가드 (관리자 화면 제외 전체) ──────────────────────────────────
+function _appBeforeUnload(e) {
+  // 시험 중이 아닌 경우(로그인/대기/결과/로딩)는 조용히 차단
+  if (state.view === "exam") {
+    e.preventDefault();
+    e.returnValue = "시험이 진행 중입니다. 페이지를 이탈하면 응시 내용이 유실될 수 있습니다.";
+    return e.returnValue;
+  }
   e.preventDefault();
   e.returnValue = "";
   return "";
 }
-function _loadingKeyDown(e) {
-  // F5 또는 Ctrl+R / Cmd+R 차단
-  if (e.key === "F5" || ((e.ctrlKey || e.metaKey) && e.key === "r")) {
+function _appKeyDown(e) {
+  // F5 / Ctrl+R / Cmd+R 차단
+  if (e.key === "F5" || ((e.ctrlKey || e.metaKey) && (e.key === "r" || e.key === "R"))) {
     e.preventDefault();
     e.stopPropagation();
   }
 }
-let _loadingGuardActive = false;
-function addLoadingGuards() {
-  if (_loadingGuardActive) return;
-  _loadingGuardActive = true;
-  window.addEventListener("beforeunload", _loadingBeforeUnload);
-  window.addEventListener("keydown", _loadingKeyDown, true);
+// 모바일 pull-to-refresh 차단
+function _appTouchStart(e) { window._ptTouchY = e.touches[0].clientY; }
+function _appTouchMove(e) {
+  const dy = e.touches[0].clientY - (window._ptTouchY || 0);
+  if (dy > 0 && (document.documentElement.scrollTop === 0 || document.body.scrollTop === 0)) {
+    e.preventDefault();
+  }
 }
-function removeLoadingGuards() {
-  if (!_loadingGuardActive) return;
-  _loadingGuardActive = false;
-  window.removeEventListener("beforeunload", _loadingBeforeUnload);
-  window.removeEventListener("keydown", _loadingKeyDown, true);
+
+let _appRefreshGuardActive = false;
+function addAppRefreshGuard() {
+  if (_appRefreshGuardActive) return;
+  _appRefreshGuardActive = true;
+  window.addEventListener("beforeunload", _appBeforeUnload);
+  window.addEventListener("keydown", _appKeyDown, true);
+  // 모바일 pull-to-refresh 차단
+  document.addEventListener("touchstart", _appTouchStart, { passive: true });
+  document.addEventListener("touchmove",  _appTouchMove,  { passive: false });
 }
+function removeAppRefreshGuard() {
+  if (!_appRefreshGuardActive) return;
+  _appRefreshGuardActive = false;
+  window.removeEventListener("beforeunload", _appBeforeUnload);
+  window.removeEventListener("keydown", _appKeyDown, true);
+  document.removeEventListener("touchstart", _appTouchStart);
+  document.removeEventListener("touchmove",  _appTouchMove);
+}
+
+// 구버전 호환 (로딩 가드 → 앱 가드로 통합)
+function addLoadingGuards()    { addAppRefreshGuard(); }
+function removeLoadingGuards() { /* 앱 가드는 관리자 화면에서만 해제 */ }
 
 function addExamGuards() {
   window.onbeforeunload = () => "시험이 진행 중입니다. 페이지를 이탈하면 응시 내용이 유실될 수 있습니다.";
