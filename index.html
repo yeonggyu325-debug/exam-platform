@@ -2077,15 +2077,26 @@ function handleLogin(event) {
   if (candidate) {
     state.currentUser = candidate;
     state.loginError  = "";
+    // 로그인 후 데이터 로딩 화면 표시
+    state.view = "loading";
+    renderLoadingScreen("응시 정보를 불러오는 중입니다", 10);
+    // 프로그레스 애니메이션
+    let _lPct = 10;
+    const _lTimer = setInterval(() => {
+      _lPct = Math.min(85, _lPct + (Math.random() * 12 + 5));
+      updateLoadingProgress(Math.round(_lPct), "응시 정보를 불러오는 중입니다");
+    }, 400);
     // 원격 최신 데이터 동기화 후 화면 결정 (관리자 초기화가 즉시 반영됨)
     loadRemoteData(() => {
+      clearInterval(_lTimer);
+      updateLoadingProgress(100, "완료!");
       const currentQuarterResult = examResults
         .filter(result => result.employeeId === candidate.employeeId && result.quarter === getCurrentQuarter())
         .sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt))[0];
       if (currentQuarterResult) {
         state.lastResult = currentQuarterResult;
         state.view = "result";
-        render();
+        setTimeout(() => render(), 200);
         return;
       }
 
@@ -2114,7 +2125,7 @@ function handleLogin(event) {
 
     state.lastResult = null;
       state.view = "candidate";
-      render();
+      setTimeout(() => render(), 200);
     }); // loadRemoteData 콜백 끝
     return;
   }
@@ -2971,17 +2982,63 @@ function refreshQuestionManager() {
 
 function updateQuestionFilter(input) {
   state.filters.qbSearch = input.value;
-  const main = document.querySelector(".admin-main");
-  if (main) {
-    const pos = input.selectionStart;
-    main.innerHTML = renderQuestionManager();
-    // 포커스 및 커서 위치 복원
-    const newInput = document.getElementById("qbSearchInput");
-    if (newInput) {
-      newInput.focus();
-      try { newInput.setSelectionRange(pos, pos); } catch(e) {}
-    }
+  // tbody만 교체해 포커스/커서 유지 (한글 IME 끊김 방지)
+  refreshQuestionTable();
+}
+
+function refreshQuestionTable() {
+  const fCat    = state.filters.qbCategory || "전체";
+  const fStatus = state.filters.qbStatus   || "전체";
+  const fSearch = (state.filters.qbSearch  || "").trim();
+
+  const filtered = questionBank.filter(q => {
+    const matchCat    = fCat    === "전체" || q.category === fCat;
+    const matchStatus = fStatus === "전체" || (fStatus === "활성" ? q.active : !q.active);
+    const matchSearch = !fSearch || q.text.includes(fSearch) || q.category.includes(fSearch);
+    return matchCat && matchStatus && matchSearch;
+  });
+
+  const tbody = document.getElementById("qbTbody");
+  const countEl = document.getElementById("qbCount");
+  if (!tbody) { renderAdminDashboard(); return; }
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" class="empty">조건에 맞는 문제가 없습니다.</td></tr>`;
+  } else {
+    tbody.innerHTML = filtered.map((q, i) => `
+      <tr style="${!q.active ? "opacity:0.55;background:#f8fafc" : ""}">
+        <td style="text-align:center;color:var(--muted);font-size:12px">${i+1}</td>
+        <td>
+          <span style="display:inline-block;padding:2px 8px;border-radius:99px;font-size:12px;font-weight:700;
+            background:${q.category==='테스트'?'#fef3c7':'#eff6ff'};
+            color:${q.category==='테스트'?'#92400e':'#2563eb'}">
+            ${escapeHtml(q.category)}
+          </span>
+        </td>
+        <td style="font-size:13px;line-height:1.5;padding:10px 12px">
+          ${escapeHtml(q.text)}
+          <div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:4px">
+            ${(q.options||[]).map((opt,oi) => `
+              <span style="font-size:11px;padding:1px 7px;border-radius:4px;
+                background:${oi===q.answerIndex?'#dcfce7':'#f1f5f9'};
+                color:${oi===q.answerIndex?'#166534':'#475569'};
+                font-weight:${oi===q.answerIndex?'700':'400'}">
+                ${oi+1}. ${escapeHtml(opt)}
+              </span>`).join("")}
+          </div>
+        </td>
+        <td style="text-align:center;font-weight:700;color:#059669">${Number(q.answerIndex)+1}번</td>
+        <td style="text-align:center">
+          <span class="badge ${q.active?"success":"danger"}">${q.active?"활성":"비활성"}</span>
+        </td>
+        <td style="text-align:center;white-space:nowrap">
+          <button class="btn small" type="button" onclick="openQuestionModal(${q.id})">수정</button>
+          <button class="btn small" type="button" onclick="toggleQuestionStatus(${q.id})">${q.active?"비활성":"활성"}</button>
+          <button class="btn small danger" type="button" onclick="deleteQuestion(${q.id})">삭제</button>
+        </td>
+      </tr>`).join("");
   }
+  if (countEl) countEl.textContent = \`\${filtered.length}/\${questionBank.length}문항 표시\`;
 }
 
 function renderAdminDashboard() {
@@ -3617,7 +3674,10 @@ function renderQuestionManager() {
           <label>검색</label>
           <input placeholder="문제 내용 검색"
             value="${escapeHtml(fSearch)}"
-            id="qbSearchInput" oninput="updateQuestionFilter(this)">
+            id="qbSearchInput"
+            oninput="if(!_qbComposing) updateQuestionFilter(this)"
+            oncompositionstart="_qbComposing=true"
+            oncompositionend="_qbComposing=false; updateQuestionFilter(this)">
         </div>
         <div class="field">
           <label>카테고리</label>
@@ -3631,7 +3691,7 @@ function renderQuestionManager() {
             ${["전체","활성","비활성"].map(v => `<option value="${v}" ${fStatus===v?"selected":""}>${v}</option>`).join("")}
           </select>
         </div>
-        <button class="btn" type="button" onclick="state.filters.qbCategory='전체';state.filters.qbStatus='전체';state.filters.qbSearch='';refreshQuestionManager()">초기화</button>
+        <button class="btn" type="button" onclick="state.filters.qbCategory='전체';state.filters.qbStatus='전체';state.filters.qbSearch='';renderAdminDashboard()">초기화</button>
       </div>
 
       <!-- 문제 테이블 -->
@@ -3655,7 +3715,7 @@ function renderQuestionManager() {
               <th style="text-align:center">관리</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody id="qbTbody">
             ${filtered.length === 0
               ? `<tr><td colspan="6" class="empty">조건에 맞는 문제가 없습니다.</td></tr>`
               : filtered.map((q, i) => `
@@ -3693,7 +3753,7 @@ function renderQuestionManager() {
           </tbody>
         </table>
       </div>
-      <p style="font-size:12px;color:var(--muted);margin-top:8px;text-align:right">
+      <p id="qbCount" style="font-size:12px;color:var(--muted);margin-top:8px;text-align:right">
         ${filtered.length}/${questionBank.length}문항 표시
       </p>
     </section>
