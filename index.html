@@ -1904,30 +1904,47 @@ function render() {
   if (state.view === "admin")     renderAdminDashboard();
 }
 
-function renderLoadingScreen() {
+function renderLoadingScreen(label, percent) {
   clearTimer();
-  const msg = state.loadingMessage || "시험 문항을 구성하고 있습니다";
-  const sub = state.loadingSubMessage || "잠시만 기다려 주시길 바랍니다...";
+  const msg = label || state.loadingMessage || "시험 문항을 구성하고 있습니다";
+  const pct = (percent != null) ? Math.min(100, Math.max(0, percent)) : null;
   app.innerHTML = `
     <main style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;gap:24px;text-align:center;padding:24px;background:var(--bg)">
       <div style="display:flex;flex-direction:column;align-items:center;gap:8px">
         <div style="font-size:32px;font-weight:800;color:var(--primary);letter-spacing:-1px">안전담당자</div>
         <div style="font-size:13px;color:var(--muted);font-weight:500">자격인증제 온라인 시험 플랫폼</div>
       </div>
-      <div style="width:48px;height:48px;border:5px solid #e2e8f0;border-top-color:var(--primary);border-radius:50%;animation:spin 0.8s linear infinite"></div>
-      <div>
-        <p style="font-size:15px;font-weight:600;color:var(--text);margin:0 0 6px">${escapeHtml(msg)}</p>
-        <p style="color:var(--muted);font-size:13px;margin:0">${escapeHtml(sub)}</p>
+      <div style="width:52px;height:52px;border:5px solid #e2e8f0;border-top-color:var(--primary);border-radius:50%;animation:spin 0.8s linear infinite"></div>
+      <div style="width:100%;max-width:300px">
+        <p id="loadingMsg" style="font-size:15px;font-weight:600;color:var(--text);margin:0 0 10px">${escapeHtml(msg)}</p>
+        ${pct != null ? `
+        <div style="background:#e2e8f0;border-radius:99px;height:8px;overflow:hidden;margin-bottom:8px">
+          <div id="loadingBar" style="height:100%;width:${pct}%;background:var(--primary);border-radius:99px;transition:width 0.35s ease"></div>
+        </div>
+        <p id="loadingPct" style="color:var(--primary);font-size:14px;font-weight:700;margin:0">${pct}%</p>
+        ` : `
+        <p style="color:var(--muted);font-size:13px;margin:0">잠시만 기다려 주시길 바랍니다...</p>
+        ${state.loadingSteps ? `
+        <div style="display:flex;flex-direction:column;gap:6px;min-width:220px;margin-top:12px;text-align:left">
+          ${state.loadingSteps.map(s => `
+            <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:${s.done?'#059669':s.active?'var(--primary)':'var(--muted)'}">
+              <span style="font-size:15px">${s.done?'✅':s.active?'⏳':'⬜'}</span>
+              <span>${escapeHtml(s.label)}</span>
+            </div>`).join('')}
+        </div>` : ''}
+        `}
       </div>
-      ${state.loadingSteps ? `
-      <div style="display:flex;flex-direction:column;gap:6px;min-width:220px">
-        ${state.loadingSteps.map(s => `
-          <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:${s.done?'#059669':s.active?'var(--primary)':'var(--muted)'}">
-            <span style="font-size:15px">${s.done?'✅':s.active?'⏳':'⬜'}</span>
-            <span>${escapeHtml(s.label)}</span>
-          </div>`).join('')}
-      </div>` : ''}
     </main>`;
+}
+
+function updateLoadingProgress(percent, label) {
+  const bar   = document.getElementById("loadingBar");
+  const pctEl = document.getElementById("loadingPct");
+  const msgEl = document.getElementById("loadingMsg");
+  const pct   = Math.min(100, Math.max(0, percent));
+  if (bar)   bar.style.width = pct + "%";
+  if (pctEl) pctEl.textContent = pct + "%";
+  if (msgEl && label) msgEl.textContent = label;
 }
 
 
@@ -3038,7 +3055,7 @@ function refreshQuestionTable() {
         </td>
       </tr>`).join("");
   }
-  if (countEl) countEl.textContent = \`\${filtered.length}/\${questionBank.length}문항 표시\`;
+  if (countEl) countEl.textContent = `${filtered.length}/${questionBank.length}문항 표시`;
 }
 
 function renderAdminDashboard() {
