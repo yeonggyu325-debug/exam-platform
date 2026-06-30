@@ -1519,6 +1519,20 @@ function hasAttemptedThisQuarter(employeeId, quarter = getCurrentQuarter()) {
   return examResults.some(result => result.employeeId === employeeId && result.quarter === quarter);
 }
 
+
+// categoryQuota에서 실제 문제은행에 존재하지 않는 카테고리 항목 자동 제거
+function cleanOrphanQuota() {
+  const existingCategories = [...new Set(questionBank.map(q => q.category))];
+  const cleaned = {};
+  Object.entries(examSettings.categoryQuota || {}).forEach(([cat, count]) => {
+    if (existingCategories.includes(cat)) {
+      cleaned[cat] = count;
+    }
+    // 문제은행에 없는 카테고리는 자동 제거
+  });
+  examSettings.categoryQuota = cleaned;
+}
+
 function getQuotaWarnings() {
   return Object.entries(examSettings.categoryQuota)
     .filter(([category, count]) => {
@@ -1630,7 +1644,11 @@ async function callExternalApi(action, payload = {}) {
 function applyRemoteData(data) {
   if (data && Array.isArray(data.users)) users = data.users;
   if (data && Array.isArray(data.questionBank)) questionBank = data.questionBank;
-  if (data && data.examSettings) examSettings = { ...examSettings, ...data.examSettings };
+  if (data && data.examSettings) {
+    examSettings = { ...examSettings, ...data.examSettings };
+    // categoryQuota에서 실제 문제은행에 없는 카테고리 자동 정리
+    cleanOrphanQuota();
+  }
   if (data && Array.isArray(data.examResults)) examResults = data.examResults;
   if (data && Array.isArray(data.activityLogs)) activityLogs = data.activityLogs;
   if (data && Array.isArray(data.activeExams)) activeExams = data.activeExams;
@@ -1733,7 +1751,10 @@ function loadPersistentData() {
     const data = JSON.parse(raw);
     if (Array.isArray(data.users)) users = data.users;
     if (Array.isArray(data.questionBank)) questionBank = data.questionBank;
-    if (data.examSettings) examSettings = { ...examSettings, ...data.examSettings };
+    if (data.examSettings) {
+      examSettings = { ...examSettings, ...data.examSettings };
+      cleanOrphanQuota();
+    }
     if (Array.isArray(data.examResults)) examResults = data.examResults;
     if (Array.isArray(data.activityLogs)) activityLogs = data.activityLogs;
     if (Array.isArray(data.activeExams)) activeExams = data.activeExams;
@@ -2108,6 +2129,7 @@ function renderCandidateDashboard() {
     renderResultScreen();
     return;
   }
+  cleanOrphanQuota();
   const shortageWarnings = getQuotaWarnings();
 
   app.innerHTML = `
