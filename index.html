@@ -1906,33 +1906,24 @@ function render() {
 
 function renderLoadingScreen(label, percent) {
   clearTimer();
-  const msg = label || state.loadingMessage || "시험 문항을 구성하고 있습니다";
+  const msg = label || "시험 문항을 구성하고 있습니다";
   const pct = (percent != null) ? Math.min(100, Math.max(0, percent)) : null;
   app.innerHTML = `
-    <main style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;gap:24px;text-align:center;padding:24px;background:var(--bg)">
-      <div style="display:flex;flex-direction:column;align-items:center;gap:8px">
-        <div style="font-size:32px;font-weight:800;color:var(--primary);letter-spacing:-1px">안전담당자</div>
-        <div style="font-size:13px;color:var(--muted);font-weight:500">자격인증제 온라인 시험 플랫폼</div>
+    <main style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;gap:28px;text-align:center;padding:32px;background:var(--bg)">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:12px">
+        <img src="https://hniruja.com/wp-content/uploads/2024/02/h-%EC%9D%B4%EB%A3%A8%EC%9E%90.png" alt="이루자 로고"
+          style="height:56px;width:auto;object-fit:contain" />
+        <div style="font-size:18px;font-weight:800;color:var(--primary);letter-spacing:-0.5px">안전담당자 자격인증제</div>
       </div>
       <div style="width:52px;height:52px;border:5px solid #e2e8f0;border-top-color:var(--primary);border-radius:50%;animation:spin 0.8s linear infinite"></div>
       <div style="width:100%;max-width:300px">
-        <p id="loadingMsg" style="font-size:15px;font-weight:600;color:var(--text);margin:0 0 10px">${escapeHtml(msg)}</p>
+        <p id="loadingMsg" style="font-size:15px;font-weight:600;color:var(--text);margin:0 0 12px">${escapeHtml(msg)}</p>
         ${pct != null ? `
         <div style="background:#e2e8f0;border-radius:99px;height:8px;overflow:hidden;margin-bottom:8px">
           <div id="loadingBar" style="height:100%;width:${pct}%;background:var(--primary);border-radius:99px;transition:width 0.35s ease"></div>
         </div>
         <p id="loadingPct" style="color:var(--primary);font-size:14px;font-weight:700;margin:0">${pct}%</p>
-        ` : `
-        <p style="color:var(--muted);font-size:13px;margin:0">잠시만 기다려 주시길 바랍니다...</p>
-        ${state.loadingSteps ? `
-        <div style="display:flex;flex-direction:column;gap:6px;min-width:220px;margin-top:12px;text-align:left">
-          ${state.loadingSteps.map(s => `
-            <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:${s.done?'#059669':s.active?'var(--primary)':'var(--muted)'}">
-              <span style="font-size:15px">${s.done?'✅':s.active?'⏳':'⬜'}</span>
-              <span>${escapeHtml(s.label)}</span>
-            </div>`).join('')}
-        </div>` : ''}
-        `}
+        ` : `<p style="color:var(--muted);font-size:13px;margin:0">잠시만 기다려 주시길 바랍니다...</p>`}
       </div>
     </main>`;
 }
@@ -3003,6 +2994,28 @@ function updateQuestionFilter(input) {
   refreshQuestionTable();
 }
 
+function bindQbSearch() {
+  const input = document.getElementById("qbSearchInput");
+  if (!input) return;
+  let composing = false;
+  input.addEventListener("compositionstart", () => { composing = true; });
+  input.addEventListener("compositionend",   (e) => {
+    composing = false;
+    state.filters.qbSearch = e.target.value;
+    refreshQuestionTable();
+  });
+  input.addEventListener("input", (e) => {
+    if (composing) return;
+    state.filters.qbSearch = e.target.value;
+    refreshQuestionTable();
+  });
+  // 카테고리/상태 select 바인딩
+  const catSel = document.getElementById("qbCatSelect");
+  const stSel  = document.getElementById("qbStatusSelect");
+  if (catSel) catSel.addEventListener("change", (e) => { state.filters.qbCategory = e.target.value; refreshQuestionTable(); });
+  if (stSel)  stSel.addEventListener("change",  (e) => { state.filters.qbStatus   = e.target.value; refreshQuestionTable(); });
+}
+
 function refreshQuestionTable() {
   const fCat    = state.filters.qbCategory || "전체";
   const fStatus = state.filters.qbStatus   || "전체";
@@ -3091,6 +3104,10 @@ function renderAdminDashboard() {
       <main class="admin-main">${renderer()}</main>
     </div>
   `;
+  // 문제은행 섹션이면 검색 이벤트 바인딩
+  if (state.adminSection === "questions") {
+    setTimeout(() => bindQbSearch(), 0);
+  }
 }
 
 function adminNavButton(section, label) {
@@ -3692,9 +3709,7 @@ function renderQuestionManager() {
           <input placeholder="문제 내용 검색"
             value="${escapeHtml(fSearch)}"
             id="qbSearchInput"
-            oninput="if(!_qbComposing) updateQuestionFilter(this)"
-            oncompositionstart="_qbComposing=true"
-            oncompositionend="_qbComposing=false; updateQuestionFilter(this)">
+            autocomplete="off">
         </div>
         <div class="field">
           <label>카테고리</label>
@@ -4197,52 +4212,12 @@ function renderLogManager() {
     // ── 앱 진입점 ──
     function initApp() {
       _initSampleData();
-
-      // 단계별 스플래시 초기 설정
-      state.loadingMessage    = "시스템을 준비하고 있습니다";
-      state.loadingSubMessage = "잠시만 기다려 주시길 바랍니다...";
-      state.loadingSteps = [
-        { label: "로컬 데이터 복원",   done: false, active: true  },
-        { label: "서버 데이터 동기화", done: false, active: false },
-        { label: "준비 완료",          done: false, active: false }
-      ];
-      state.view = "loading";
-      render();
-
-      // Step 1: 로컬 데이터 복원
       loadPersistentData();
-      state.loadingSteps[0].done   = true;
-      state.loadingSteps[0].active = false;
-      state.loadingSteps[1].active = true;
-      state.loadingMessage = "서버 데이터를 불러오고 있습니다";
+      state.view = "login";
       render();
-
-      // Step 2: 원격 동기화
-      const finalize = (ok) => {
-        if (ok) {
-          state.loadingSteps[1].done   = true;
-          state.loadingSteps[1].active = false;
-        } else {
-          state.loadingSteps[1].label  = "서버 연결 실패 (로컬 데이터 사용)";
-          state.loadingSteps[1].done   = true;
-          state.loadingSteps[1].active = false;
-        }
-        state.loadingSteps[2].done   = true;
-        state.loadingSteps[2].active = false;
-        state.loadingMessage    = "준비 완료!";
-        state.loadingSubMessage = "로그인 화면으로 이동합니다";
-        render();
-        setTimeout(() => {
-          state.view = "login";
-          state.loadingSteps = null;
-          render();
-        }, 600);
-      };
-
+      // 백그라운드 원격 동기화 (로그인 화면 유지)
       if (isAppsScriptRuntime() || isExternalApiRuntime()) {
-        loadRemoteData(finalize);
-      } else {
-        setTimeout(() => finalize(false), 300);
+        loadRemoteData(() => {});
       }
     }
     initApp();
