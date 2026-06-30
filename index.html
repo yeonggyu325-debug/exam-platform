@@ -1906,14 +1906,27 @@ function render() {
 
 function renderLoadingScreen() {
   clearTimer();
+  const msg = state.loadingMessage || "시험 문항을 구성하고 있습니다";
+  const sub = state.loadingSubMessage || "잠시만 기다려 주시길 바랍니다...";
   app.innerHTML = `
-    ${buildHeader()}
-    <main style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;gap:20px;text-align:center;padding:24px">
+    <main style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;gap:24px;text-align:center;padding:24px;background:var(--bg)">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:8px">
+        <div style="font-size:32px;font-weight:800;color:var(--primary);letter-spacing:-1px">안전담당자</div>
+        <div style="font-size:13px;color:var(--muted);font-weight:500">자격인증제 온라인 시험 플랫폼</div>
+      </div>
       <div style="width:48px;height:48px;border:5px solid #e2e8f0;border-top-color:var(--primary);border-radius:50%;animation:spin 0.8s linear infinite"></div>
       <div>
-        <p style="font-size:16px;font-weight:600;color:var(--text);margin:0 0 6px">시험 문항을 구성하고 있습니다</p>
-        <p style="color:var(--muted);font-size:13px;margin:0">잠시만 기다려 주시길 바랍니다...</p>
+        <p style="font-size:15px;font-weight:600;color:var(--text);margin:0 0 6px">${escapeHtml(msg)}</p>
+        <p style="color:var(--muted);font-size:13px;margin:0">${escapeHtml(sub)}</p>
       </div>
+      ${state.loadingSteps ? `
+      <div style="display:flex;flex-direction:column;gap:6px;min-width:220px">
+        ${state.loadingSteps.map(s => `
+          <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:${s.done?'#059669':s.active?'var(--primary)':'var(--muted)'}">
+            <span style="font-size:15px">${s.done?'✅':s.active?'⏳':'⬜'}</span>
+            <span>${escapeHtml(s.label)}</span>
+          </div>`).join('')}
+      </div>` : ''}
     </main>`;
 }
 
@@ -2950,6 +2963,27 @@ function refreshFromRemote() {
   });
 }
 
+function refreshQuestionManager() {
+  const main = document.querySelector(".admin-main");
+  if (main) main.innerHTML = renderQuestionManager();
+  else renderAdminDashboard();
+}
+
+function updateQuestionFilter(input) {
+  state.filters.qbSearch = input.value;
+  const main = document.querySelector(".admin-main");
+  if (main) {
+    const pos = input.selectionStart;
+    main.innerHTML = renderQuestionManager();
+    // 포커스 및 커서 위치 복원
+    const newInput = document.getElementById("qbSearchInput");
+    if (newInput) {
+      newInput.focus();
+      try { newInput.setSelectionRange(pos, pos); } catch(e) {}
+    }
+  }
+}
+
 function renderAdminDashboard() {
   clearTimer();
   removeExamGuards();
@@ -3583,21 +3617,21 @@ function renderQuestionManager() {
           <label>검색</label>
           <input placeholder="문제 내용 검색"
             value="${escapeHtml(fSearch)}"
-            oninput="state.filters.qbSearch=this.value; renderAdminDashboard()">
+            id="qbSearchInput" oninput="updateQuestionFilter(this)">
         </div>
         <div class="field">
           <label>카테고리</label>
-          <select onchange="state.filters.qbCategory=this.value; renderAdminDashboard()">
+          <select onchange="state.filters.qbCategory=this.value; refreshQuestionManager()">
             ${categories.map(c => `<option value="${c}" ${fCat===c?"selected":""}>${escapeHtml(c)}</option>`).join("")}
           </select>
         </div>
         <div class="field">
           <label>상태</label>
-          <select onchange="state.filters.qbStatus=this.value; renderAdminDashboard()">
+          <select onchange="state.filters.qbStatus=this.value; refreshQuestionManager()">
             ${["전체","활성","비활성"].map(v => `<option value="${v}" ${fStatus===v?"selected":""}>${v}</option>`).join("")}
           </select>
         </div>
-        <button class="btn" type="button" onclick="state.filters.qbCategory='전체';state.filters.qbStatus='전체';state.filters.qbSearch='';renderAdminDashboard()">초기화</button>
+        <button class="btn" type="button" onclick="state.filters.qbCategory='전체';state.filters.qbStatus='전체';state.filters.qbSearch='';refreshQuestionManager()">초기화</button>
       </div>
 
       <!-- 문제 테이블 -->
@@ -4086,14 +4120,52 @@ function renderLogManager() {
     // ── 앱 진입점 ──
     function initApp() {
       _initSampleData();
-      // 로컬 데이터로 즉시 렌더링 (빠른 초기 화면)
-      loadPersistentData();
+
+      // 단계별 스플래시 초기 설정
+      state.loadingMessage    = "시스템을 준비하고 있습니다";
+      state.loadingSubMessage = "잠시만 기다려 주시길 바랍니다...";
+      state.loadingSteps = [
+        { label: "로컬 데이터 복원",   done: false, active: true  },
+        { label: "서버 데이터 동기화", done: false, active: false },
+        { label: "준비 완료",          done: false, active: false }
+      ];
+      state.view = "loading";
       render();
-      // 백그라운드에서 원격 데이터 동기화
+
+      // Step 1: 로컬 데이터 복원
+      loadPersistentData();
+      state.loadingSteps[0].done   = true;
+      state.loadingSteps[0].active = false;
+      state.loadingSteps[1].active = true;
+      state.loadingMessage = "서버 데이터를 불러오고 있습니다";
+      render();
+
+      // Step 2: 원격 동기화
+      const finalize = (ok) => {
+        if (ok) {
+          state.loadingSteps[1].done   = true;
+          state.loadingSteps[1].active = false;
+        } else {
+          state.loadingSteps[1].label  = "서버 연결 실패 (로컬 데이터 사용)";
+          state.loadingSteps[1].done   = true;
+          state.loadingSteps[1].active = false;
+        }
+        state.loadingSteps[2].done   = true;
+        state.loadingSteps[2].active = false;
+        state.loadingMessage    = "준비 완료!";
+        state.loadingSubMessage = "로그인 화면으로 이동합니다";
+        render();
+        setTimeout(() => {
+          state.view = "login";
+          state.loadingSteps = null;
+          render();
+        }, 600);
+      };
+
       if (isAppsScriptRuntime() || isExternalApiRuntime()) {
-        loadRemoteData((ok) => {
-          if (ok) render(); // 원격 데이터 받으면 갱신
-        });
+        loadRemoteData(finalize);
+      } else {
+        setTimeout(() => finalize(false), 300);
       }
     }
     initApp();
