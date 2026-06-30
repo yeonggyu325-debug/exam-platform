@@ -1431,6 +1431,12 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+// 줄바꿈(
+)을 <br>로 변환 (문제 텍스트 표시용)
+function formatText(value) {
+  return escapeHtml(value).replaceAll("\n", "<br>");
+}
+
 function formatDateTime(iso) {
   if (!iso) return "-";
   return new Intl.DateTimeFormat("ko-KR", {
@@ -1896,6 +1902,17 @@ const modalRoot = document.getElementById("modalRoot");
 
 function render() {
   document.documentElement.dataset.theme = state.theme;
+  // 현재 세션 상태 저장 (F5 새로고침 복원용)
+  if (state.currentUser && state.view !== "loading") {
+    try {
+      sessionStorage.setItem("HNIRUJA_SESSION", JSON.stringify({
+        view: state.view,
+        user: state.currentUser,
+        adminSection: state.adminSection,
+        isTestMode: state.isTestMode
+      }));
+    } catch(e) {}
+  }
   if (state.view === "loading")   renderLoadingScreen();
   if (state.view === "login")     renderLogin();
   if (state.view === "candidate") renderCandidateDashboard();
@@ -1972,6 +1989,7 @@ function setTheme(theme) {
 function logout() {
   clearTimer();
   removeExamGuards();
+  try { sessionStorage.removeItem("HNIRUJA_SESSION"); } catch(e) {}
   state.currentUser  = null;
   state.view         = "login";
   state.adminSection = "dashboard";
@@ -2017,7 +2035,7 @@ function renderLogin() {
               <input id="loginName" name="name" autocomplete="name" placeholder="성명을 입력하세요" required />
             </div>
             <button class="btn primary login-submit-btn" type="submit">
-              로그인
+              입장하기
             </button>
           </form>
         </div>
@@ -2204,11 +2222,11 @@ function renderCandidateDashboard() {
           </div>
 
           <ol class="ready-rules">
-            <li>시험 시작 전 네트워크 연결 상태와 배터리 충전 상태를 반드시 확인하여 주십시오.</li>
+            <li>시험 시작 전 네트워크 연결 상태(Wi-Fi 또는 데이터)와 배터리 충전 상태를 반드시 확인하여 주십시오.</li>
             <li>응시 중 전화 수신, 알림, 앱 전환 등이 발생하지 않도록 방해 금지 모드 설정 후 응시하는 것을 권장드립니다.</li>
-            <li>각 문항의 보기 중 가장 적절한 답안 1개를 선택하여 주십시오.</li>
+            <li>각 문항의 보기 중 가장 적절한 답안 1개를 선택한 후 다음 문항으로 진행하여 주십시오.</li>
             <li>모든 문항에 응답하여야 최종 제출이 가능하며, 제출 후에는 답안을 수정할 수 없으므로 제출 전 반드시 확인하여 주십시오.</li>
-            <li>응시 시간이 초과될 경우 답안이 자동으로 제출되며, 응답이 완료된 문항까지만 채점됩니다.</li>
+            <li>응시 시간이 초과될 경우 답안이 자동으로 제출되며, 응답이 완료된 문항까지만 채점됩니다. 시간 관리에 유의하여 주십시오.</li>
             <li class="rule-warn">응시 중 화면 전환은 자동으로 기록되며, 3회 이상 이탈 시 부정행위로 간주되어 실격 처리될 수 있습니다.</li>
           </ol>
 
@@ -2263,7 +2281,7 @@ function clearIntroCountdown() {
 
 function startIntroCountdown() {
   state.examIntroReady = false;
-  const duration = 20000; // 20초
+  const duration = 10000; // 10초
   const startTime = performance.now();
 
   const tick = (now) => {
@@ -2288,7 +2306,7 @@ function startIntroCountdown() {
 /* ─── 시험 시작 ───────────────────────────────── */
 function startExam() {
   if (!state.examIntroReady) {
-    alert("안내문을 20초 이상 확인한 뒤 응시할 수 있습니다.");
+    alert("안내문을 10초 이상 확인한 뒤 응시할 수 있습니다.");
     return;
   }
   clearIntroCountdown();
@@ -2402,6 +2420,7 @@ function removePreExamGuards() {
   document.removeEventListener("visibilitychange", handlePreExamVisibility);
 }
 function handlePreExamVisibility() {
+  if (window._appJustLoaded) return;
   if (!state.examGuardActive || state.view !== "candidate") return;
   if (document.hidden) {
     const user = state.currentUser;
@@ -2441,6 +2460,8 @@ function handlePageHide() {
 
 function handleVisibilityChange() {
   if (document.hidden) {
+    // 새로고침 직후 오감지 방지
+    if (window._appJustLoaded) return;
     // 이탈 시각 기록
     state._tabHiddenAt = Date.now();
     handleTabSwitchViolation("visibilitychange");
@@ -2463,6 +2484,7 @@ function handleVisibilityChange() {
 }
 function handleWindowBlur() {
   setTimeout(() => {
+    if (window._appJustLoaded) return;
     if (document.hidden) handleTabSwitchViolation("blur-confirmed");
   }, 300);
 }
@@ -2557,7 +2579,7 @@ function renderExamScreen() {
     const answered = exam.answers[index] !== null;
     return `
     <section class="v2-question-card ${answered ? "v2-question-answered" : ""}" id="q${index}" aria-labelledby="qt${index}">
-      <h3 id="qt${index}" class="v2-question-text"><span class="v2-question-num">${index + 1}.</span> ${escapeHtml(question.text)}</h3>
+      <h3 id="qt${index}" class="v2-question-text"><span class="v2-question-num">${index + 1}.</span> ${formatText(question.text)}</h3>
       <fieldset style="border:0;padding:0;margin:0">
         <legend class="sr-only">문항 ${index + 1} 답안 선택</legend>
         ${question.options.map((option, optionIndex) => {
@@ -3046,7 +3068,7 @@ function refreshQuestionTable() {
           </span>
         </td>
         <td style="font-size:13px;line-height:1.5;padding:10px 12px">
-          ${escapeHtml(q.text)}
+          ${formatText(q.text)}
           <div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:4px">
             ${(q.options||[]).map((opt,oi) => `
               <span style="font-size:11px;padding:1px 7px;border-radius:4px;
@@ -3761,7 +3783,7 @@ function renderQuestionManager() {
                   </span>
                 </td>
                 <td style="font-size:13px;line-height:1.5;padding:10px 12px">
-                  ${escapeHtml(q.text)}
+                  ${formatText(q.text)}
                   <div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:4px">
                     ${(q.options||[]).map((opt,oi) => `
                       <span style="font-size:11px;padding:1px 7px;border-radius:4px;
@@ -4213,11 +4235,56 @@ function renderLogManager() {
     function initApp() {
       _initSampleData();
       loadPersistentData();
-      state.view = "login";
+
+      // F5 새로고침 시 이전 화면 복원
+      let restored = false;
+      try {
+        const saved = sessionStorage.getItem("HNIRUJA_SESSION");
+        if (saved) {
+          const sess = JSON.parse(saved);
+          if (sess.user && sess.view) {
+            state.currentUser  = sess.user;
+            state.adminSection = sess.adminSection || "dashboard";
+            state.isTestMode   = sess.isTestMode   || false;
+            // 시험 중이었으면 activeExams에서 복원
+            if (sess.view === "exam") {
+              const rec = getActiveExamRecord(sess.user.employeeId);
+              if (rec?.exam) {
+                state.currentExam = rec.exam;
+                const savedRemaining = Number(rec.remainingSeconds || examSettings.timeLimitMinutes * 60);
+                const savedAt = rec.updatedAt ? new Date(rec.updatedAt).getTime() : Date.now();
+                const elapsedSecs = Math.floor((Date.now() - savedAt) / 1000);
+                state.remainingSeconds = Math.max(1, savedRemaining - elapsedSecs);
+                state.currentQuestionIndex = 0;
+                state.isSubmitting = false;
+                state.view = "exam";
+              } else {
+                state.view = "candidate";
+              }
+            } else {
+              state.view = sess.view;
+            }
+            restored = true;
+          }
+        }
+      } catch(e) {}
+
+      if (!restored) state.view = "login";
+
+      // 새로고침 직후 탭전환 오감지 방지 플래그
+      window._appJustLoaded = true;
+      setTimeout(() => { window._appJustLoaded = false; }, 800);
+
       render();
-      // 백그라운드 원격 동기화 (로그인 화면 유지)
+
+      // 시험 복원이면 타이머/가드 재등록
+      if (state.view === "exam" && state.currentExam) {
+        setTimeout(() => { startTimer(); }, 100);
+      }
+
+      // 백그라운드 원격 동기화
       if (isAppsScriptRuntime() || isExternalApiRuntime()) {
-        loadRemoteData(() => {});
+        loadRemoteData((ok) => { if (ok && state.view !== "exam") render(); });
       }
     }
     initApp();
