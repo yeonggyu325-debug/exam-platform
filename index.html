@@ -1912,6 +1912,12 @@ function render() {
       }));
     } catch(e) {}
   }
+  // 로딩 중 새로고침 차단 / 로딩 아닐 때 해제
+  if (state.view === "loading") {
+    addLoadingGuards();
+  } else {
+    removeLoadingGuards();
+  }
   if (state.view === "loading")   renderLoadingScreen();
   if (state.view === "login")     renderLogin();
   if (state.view === "candidate") renderCandidateDashboard();
@@ -2439,6 +2445,33 @@ function handlePreExamVisibility() {
   }
 }
 
+// ── 로딩 중 새로고침 차단 가드 ────────────────────────────────────────────────
+function _loadingBeforeUnload(e) {
+  e.preventDefault();
+  e.returnValue = "";
+  return "";
+}
+function _loadingKeyDown(e) {
+  // F5 또는 Ctrl+R / Cmd+R 차단
+  if (e.key === "F5" || ((e.ctrlKey || e.metaKey) && e.key === "r")) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+}
+let _loadingGuardActive = false;
+function addLoadingGuards() {
+  if (_loadingGuardActive) return;
+  _loadingGuardActive = true;
+  window.addEventListener("beforeunload", _loadingBeforeUnload);
+  window.addEventListener("keydown", _loadingKeyDown, true);
+}
+function removeLoadingGuards() {
+  if (!_loadingGuardActive) return;
+  _loadingGuardActive = false;
+  window.removeEventListener("beforeunload", _loadingBeforeUnload);
+  window.removeEventListener("keydown", _loadingKeyDown, true);
+}
+
 function addExamGuards() {
   window.onbeforeunload = () => "시험이 진행 중입니다. 페이지를 이탈하면 응시 내용이 유실될 수 있습니다.";
   document.addEventListener("visibilitychange", handleVisibilityChange);
@@ -2459,8 +2492,8 @@ function handlePageHide() {
 
 function handleVisibilityChange() {
   if (document.hidden) {
-    // 새로고침 직후 오감지 방지
-    if (window._appJustLoaded) return;
+    // 로딩 중이거나 새로고침 직후면 무시
+    if (state.view === "loading" || window._appJustLoaded) return;
     // 이탈 시각 기록
     state._tabHiddenAt = Date.now();
     handleTabSwitchViolation("visibilitychange");
