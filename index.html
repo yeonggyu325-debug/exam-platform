@@ -1879,6 +1879,9 @@ const state = {
   filters: {
     userSearch: "",
     userType: "전체",
+    qbCategory: "전체",
+    qbStatus: "전체",
+    qbSearch: "",
     userDepartment: "전체",
     userStatus: "전체",
     resultDepartment: "전체",
@@ -3504,55 +3507,129 @@ function removeAffiliation(name) {
 // 책임: 문제은행 목록, 추가/수정/비활성화 모달
 
 function renderQuestionManager() {
-  const categoryCounts = getCategoryCounts();
+  // 필터 상태
+  const fCat    = state.filters.qbCategory    || "전체";
+  const fStatus = state.filters.qbStatus      || "전체";
+  const fSearch = state.filters.qbSearch      || "";
+
+  const categories = ["전체", ...new Set(questionBank.map(q => q.category))].sort((a,b) => a==="전체"?-1:b==="전체"?1:a.localeCompare(b));
+
+  const filtered = questionBank.filter(q => {
+    const matchCat    = fCat    === "전체" || q.category === fCat;
+    const matchStatus = fStatus === "전체" || (fStatus === "활성" ? q.active : !q.active);
+    const matchSearch = !fSearch.trim() || q.text.includes(fSearch.trim()) || q.category.includes(fSearch.trim());
+    return matchCat && matchStatus && matchSearch;
+  });
+
+  const activeCount = questionBank.filter(q => q.active).length;
+  const inactiveCount = questionBank.length - activeCount;
+
   return `
     <section class="card">
       <div class="section-head">
         <div>
           <h2>문제은행 관리</h2>
+          <p style="font-size:13px;color:var(--muted);margin:2px 0 0">
+            전체 ${questionBank.length}문항 · 활성 ${activeCount} · 비활성 ${inactiveCount}
+          </p>
         </div>
-        <button class="btn primary" type="button" onclick="openQuestionModal()">문제 추가</button>
+        <div style="display:flex;gap:8px">
+          <button id="refreshBtn" class="btn" type="button" onclick="refreshFromRemote()">⟳ 새로고침</button>
+          <button class="btn primary" type="button" onclick="openQuestionModal()">+ 문제 추가</button>
+        </div>
       </div>
 
-      ${getQuotaWarnings().length ? `<div class="notice danger">${getQuotaWarnings().map(escapeHtml).join("<br>")}</div><br>` : ""}
+      ${getQuotaWarnings().length ? `<div class="notice danger" style="margin-bottom:12px">${getQuotaWarnings().map(escapeHtml).join("<br>")}</div>` : ""}
 
-      <div class="grid three">
-        ${categoryCounts.map(item => `
-          <div class="metric">
-            <div class="label">${escapeHtml(item.category)}</div>
-            <div class="value">${item.count}</div>
-            <div class="sub">활성 문항</div>
-          </div>
-        `).join("")}
+      <!-- 필터 -->
+      <div class="filters" style="grid-template-columns:1fr 1fr 1fr auto;margin-bottom:12px">
+        <div class="field">
+          <label>검색</label>
+          <input placeholder="문제 내용 검색"
+            value="${escapeHtml(fSearch)}"
+            oninput="state.filters.qbSearch=this.value; renderAdminDashboard()">
+        </div>
+        <div class="field">
+          <label>카테고리</label>
+          <select onchange="state.filters.qbCategory=this.value; renderAdminDashboard()">
+            ${categories.map(c => `<option value="${c}" ${fCat===c?"selected":""}>${escapeHtml(c)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="field">
+          <label>상태</label>
+          <select onchange="state.filters.qbStatus=this.value; renderAdminDashboard()">
+            ${["전체","활성","비활성"].map(v => `<option value="${v}" ${fStatus===v?"selected":""}>${v}</option>`).join("")}
+          </select>
+        </div>
+        <button class="btn" type="button" onclick="state.filters.qbCategory='전체';state.filters.qbStatus='전체';state.filters.qbSearch='';renderAdminDashboard()">초기화</button>
       </div>
 
-      <br>
+      <!-- 문제 테이블 -->
       <div class="table-wrap">
-        <table>
+        <table style="table-layout:fixed;width:100%">
+          <colgroup>
+            <col style="width:52px">
+            <col style="width:110px">
+            <col style="width:auto">
+            <col style="width:62px">
+            <col style="width:62px">
+            <col style="width:130px">
+          </colgroup>
           <thead>
-            <tr><th>ID</th><th>카테고리</th><th>문제 문장</th><th>정답</th><th>상태</th><th>관리</th></tr>
+            <tr>
+              <th style="text-align:center">No</th>
+              <th>카테고리</th>
+              <th>문제</th>
+              <th style="text-align:center">정답</th>
+              <th style="text-align:center">상태</th>
+              <th style="text-align:center">관리</th>
+            </tr>
           </thead>
           <tbody>
-            ${questionBank.map(q => `
-              <tr>
-                <td>${q.id}</td>
-                <td>${escapeHtml(q.category)}</td>
-                <td>${escapeHtml(q.text)}</td>
-                <td>${Number(q.answerIndex) + 1}번</td>
-                <td><span class="badge ${q.active ? "success" : "danger"}">${q.active ? "사용" : "비활성"}</span></td>
+            ${filtered.length === 0
+              ? `<tr><td colspan="6" class="empty">조건에 맞는 문제가 없습니다.</td></tr>`
+              : filtered.map((q, i) => `
+              <tr style="${!q.active ? "opacity:0.55;background:#f8fafc" : ""}">
+                <td style="text-align:center;color:var(--muted);font-size:12px">${i+1}</td>
                 <td>
+                  <span style="display:inline-block;padding:2px 8px;border-radius:99px;font-size:12px;font-weight:700;
+                    background:${q.category==='테스트'?'#fef3c7':'#eff6ff'};
+                    color:${q.category==='테스트'?'#92400e':'#2563eb'}">
+                    ${escapeHtml(q.category)}
+                  </span>
+                </td>
+                <td style="font-size:13px;line-height:1.5;padding:10px 12px">
+                  ${escapeHtml(q.text)}
+                  <div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:4px">
+                    ${(q.options||[]).map((opt,oi) => `
+                      <span style="font-size:11px;padding:1px 7px;border-radius:4px;
+                        background:${oi===q.answerIndex?'#dcfce7':'#f1f5f9'};
+                        color:${oi===q.answerIndex?'#166534':'#475569'};
+                        font-weight:${oi===q.answerIndex?'700':'400'}">
+                        ${oi+1}. ${escapeHtml(opt)}
+                      </span>`).join("")}
+                  </div>
+                </td>
+                <td style="text-align:center;font-weight:700;color:#059669">${Number(q.answerIndex)+1}번</td>
+                <td style="text-align:center">
+                  <span class="badge ${q.active?"success":"danger"}">${q.active?"활성":"비활성"}</span>
+                </td>
+                <td style="text-align:center;white-space:nowrap">
                   <button class="btn small" type="button" onclick="openQuestionModal(${q.id})">수정</button>
-                  <button class="btn small" type="button" onclick="toggleQuestionStatus(${q.id})">${q.active ? "비활성" : "활성"}</button>
+                  <button class="btn small" type="button" onclick="toggleQuestionStatus(${q.id})">${q.active?"비활성":"활성"}</button>
                   <button class="btn small danger" type="button" onclick="deleteQuestion(${q.id})">삭제</button>
                 </td>
-              </tr>
-            `).join("")}
+              </tr>`).join("")}
           </tbody>
         </table>
       </div>
+      <p style="font-size:12px;color:var(--muted);margin-top:8px;text-align:right">
+        ${filtered.length}/${questionBank.length}문항 표시
+      </p>
     </section>
   `;
 }
+
 
 function openQuestionModal(questionId = null) {
   const q = questionBank.find(item => item.id === questionId) || {
