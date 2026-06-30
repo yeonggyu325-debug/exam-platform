@@ -1908,9 +1908,12 @@ function renderLoadingScreen() {
   clearTimer();
   app.innerHTML = `
     ${buildHeader()}
-    <main style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;gap:16px">
-      <div style="width:40px;height:40px;border:4px solid #e2e8f0;border-top-color:var(--primary);border-radius:50%;animation:spin 0.8s linear infinite"></div>
-      <p style="color:var(--muted);font-size:15px">데이터 확인 중...</p>
+    <main style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;gap:20px;text-align:center;padding:24px">
+      <div style="width:48px;height:48px;border:5px solid #e2e8f0;border-top-color:var(--primary);border-radius:50%;animation:spin 0.8s linear infinite"></div>
+      <div>
+        <p style="font-size:16px;font-weight:600;color:var(--text);margin:0 0 6px">시험 문항을 구성하고 있습니다</p>
+        <p style="color:var(--muted);font-size:13px;margin:0">잠시만 기다려 주시길 바랍니다...</p>
+      </div>
     </main>`;
 }
 
@@ -2061,9 +2064,6 @@ function handleLogin(event) {
   if (candidate) {
     state.currentUser = candidate;
     state.loginError  = "";
-    state.view        = "loading";
-    render();
-
     // 원격 최신 데이터 동기화 후 화면 결정 (관리자 초기화가 즉시 반영됨)
     loadRemoteData(() => {
       const currentQuarterResult = examResults
@@ -2118,6 +2118,8 @@ function handleLogin(event) {
 
 /* ─── 응시자 대시보드 ─────────────────────────── */
 function renderCandidateDashboard() {
+  state.examGuardActive = false;
+  removePreExamGuards();
   clearTimer();
   removeExamGuards();
   clearIntroCountdown();
@@ -2211,11 +2213,14 @@ function renderCandidateDashboard() {
 }
 
 function onAgreeChange() {
-  // 체크 상태는 카운트다운 완료 후 버튼 활성화에 반영됨
   const btn = document.getElementById('startExamBtn');
   const done = state.examIntroReady;
   const checked = document.getElementById('agreeCheck')?.checked;
   if (btn) btn.disabled = !(done && checked);
+  // 응시확인 체크 시점부터 화면전환 감지 시작
+  state.examGuardActive = !!checked;
+  if (checked) addPreExamGuards();
+  else removePreExamGuards();
 }
 function clearIntroCountdown() {
   if (state.introTimerId) {
@@ -2288,10 +2293,15 @@ function startExam() {
   state.currentQuestionIndex = 0;
   state.remainingSeconds     = examSettings.timeLimitMinutes * 60;
   state.isSubmitting         = false;
-  state.view                 = "exam";
-  persistCurrentExam();
-  renderExamScreen();
-  startTimer();
+  // 로딩 화면 표시 후 시험 진입
+  state.view = "loading";
+  render();
+  setTimeout(() => {
+    state.view = "exam";
+    persistCurrentExam();
+    renderExamScreen();
+    startTimer();
+  }, 300);
 }
 
 function generateExamQuestions() {
@@ -2351,6 +2361,32 @@ function startTimer() {
       submitExam(true, false, "시간 종료로 자동 제출");
     }
   }, 1000);
+}
+
+function addPreExamGuards() {
+  document.addEventListener("visibilitychange", handlePreExamVisibility);
+}
+function removePreExamGuards() {
+  document.removeEventListener("visibilitychange", handlePreExamVisibility);
+}
+function handlePreExamVisibility() {
+  if (!state.examGuardActive || state.view !== "candidate") return;
+  if (document.hidden) {
+    const user = state.currentUser;
+    if (!user) return;
+    const createdAt = new Date().toISOString();
+    activityLogs.push({
+      logId: nextId(activityLogs, "logId"),
+      employeeId: user.employeeId,
+      department: user.department,
+      name: user.name,
+      type: "WARNING",
+      message: "응시확인 체크 후 시험 시작 전 화면 이탈 감지",
+      tabSwitchCount: 0,
+      createdAt
+    });
+    savePersistentData();
+  }
 }
 
 function addExamGuards() {
