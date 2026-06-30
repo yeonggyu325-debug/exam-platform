@@ -953,6 +953,10 @@ tr:last-child td { border-bottom: 0; }
 .v2-exam-bar-right { display: flex; align-items: center; gap: 12px; }
 .v2-exam-progress-text { font-size: 14px; font-weight: 700; color: var(--muted); }
 .v2-submit-btn { border-radius: 8px !important; min-height: 34px !important; }
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(59,130,246,0.5); }
+  50%       { box-shadow: 0 0 0 6px rgba(59,130,246,0); }
+}
 
 .v2-exam-progress-track { height: 2px; background: var(--line); }
 .v2-exam-progress-fill { height: 100%; background: var(--primary); transition: width 0.2s ease; }
@@ -1882,6 +1886,7 @@ const state = {
   _tabHiddenAt: null,
   filters: {
     userSearch: "",
+    userType: "전체",
     userDepartment: "전체",
     userStatus: "전체",
     resultDepartment: "전체",
@@ -1966,7 +1971,7 @@ function renderLogin() {
             <div class="field">
               <label for="loginType">구분</label>
               <select id="loginType" name="type" onchange="updateLoginDepartments(this.value)">
-                <option value="">구분을 선택하세요</option>
+                <option value="" hidden disabled selected>구분을 선택하세요</option>
                 <option value="이루자">이루자</option>
                 <option value="협력사">협력사</option>
               </select>
@@ -1974,7 +1979,7 @@ function renderLogin() {
             <div class="field">
               <label for="loginDepartment">소속</label>
               <select id="loginDepartment" name="department" autocomplete="organization" disabled>
-                <option value="">구분을 먼저 선택하세요</option>
+                <option value="" hidden disabled selected>구분을 먼저 선택하세요</option>
               </select>
             </div>
             <div class="field">
@@ -2005,7 +2010,7 @@ function updateLoginDepartments(type) {
     (typeof a === "string" ? "이루자" : a.type) === type
   );
   sel.disabled = false;
-  sel.innerHTML = `<option value="">소속을 선택하세요</option>` +
+  sel.innerHTML = `<option value="" hidden disabled selected>소속을 선택하세요</option>` +
     list.map(a => {
       const name = typeof a === "string" ? a : a.name;
       return `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`;
@@ -2503,7 +2508,7 @@ function renderExamScreen() {
         </div>
         <div class="v2-exam-bar-right">
           <span class="v2-exam-progress-text">${answeredCount}/${exam.questions.length}</span>
-          <button class="btn primary small v2-submit-btn" id="topSubmitBtn" type="button" onclick="openSubmitConfirm()" ${answeredCount < exam.questions.length ? "disabled" : ""}>제출</button>
+
         </div>
       </div>
       <div class="v2-exam-progress-track">
@@ -2514,13 +2519,41 @@ function renderExamScreen() {
     <main class="container v2-exam-container">
       ${questionsHtml}
       <div class="v2-submit-bottom">
-        <button class="btn primary v2-submit-final-btn" id="bottomSubmitBtn" type="button" onclick="openSubmitConfirm()" ${unanswered > 0 ? "disabled" : ""}>${unanswered > 0 ? `미응답 ${unanswered}문항 남음 · 최종 제출` : "최종 제출"}</button>
+        <button class="btn v2-submit-final-btn" id="bottomSubmitBtn" type="button"
+        style="${unanswered > 0 ? 'background:#f1f5f9;color:#94a3b8;border:1.5px solid #e2e8f0;cursor:not-allowed;font-weight:700' : 'animation:pulseGlow 1.4s ease-in-out infinite'}"
+        ${unanswered > 0 ? 'disabled' : 'onclick="openSubmitConfirm()"'}
+      >${unanswered > 0 ? `미응답 ${unanswered}문항 남음` : '✓ 최종 제출'}</button>
       </div>
     </main>
   `;
 }
 
 
+
+function updateSubmitButtonState() {
+  if (!state.currentExam) return;
+  const total       = state.currentExam.questions.length;
+  const answered    = state.currentExam.answers.filter(a => a !== null).length;
+  const unanswered  = total - answered;
+  const finalBtn    = document.getElementById('bottomSubmitBtn');
+  if (finalBtn) {
+    if (unanswered > 0) {
+      finalBtn.disabled = true;
+      finalBtn.textContent = `미응답 ${unanswered}문항 남음`;
+      finalBtn.style.cssText = 'background:#f1f5f9;color:#94a3b8;border:1.5px solid #e2e8f0;cursor:not-allowed;font-weight:700';
+      finalBtn.onclick = null;
+      finalBtn.classList.remove('primary');
+    } else {
+      finalBtn.disabled = false;
+      finalBtn.textContent = '✓ 최종 제출';
+      finalBtn.style.cssText = 'animation:pulseGlow 1.4s ease-in-out infinite';
+      finalBtn.onclick = openSubmitConfirm;
+      finalBtn.classList.add('primary');
+    }
+  }
+  const statEl = document.querySelector('.v2-exam-progress-text');
+  if (statEl) statEl.textContent = answered + '/' + total;
+}
 function selectAnswerLock(questionIndex, optionIndex) {
   if (!state.currentExam) return;
   // 이미 같은 답이 선택된 경우 → 선택 해제(토글)
@@ -2566,19 +2599,28 @@ function selectAnswerAll(questionIndex, optionIndex) {
   if (statEl) statEl.textContent = answeredCount + '/' + total;
 
   const finalBtn = document.getElementById('bottomSubmitBtn');
-  if (finalBtn) finalBtn.textContent = unanswered > 0 ? `미응답 ${unanswered}문항 남음 · 최종 제출` : '최종 제출';
-
-  const allAnswered = state.currentExam.answers.every(a => a !== null);
-  const topBtn = document.getElementById('topSubmitBtn');
-  if (topBtn) topBtn.disabled = !allAnswered;
-  if (finalBtn) finalBtn.disabled = !allAnswered;
+  if (finalBtn) {
+    if (unanswered > 0) {
+      finalBtn.disabled = true;
+      finalBtn.textContent = `미응답 ${unanswered}문항 남음`;
+      finalBtn.style.cssText = 'background:#f1f5f9;color:#94a3b8;border:1.5px solid #e2e8f0;cursor:not-allowed;font-weight:700';
+      finalBtn.onclick = null;
+      finalBtn.classList.remove('primary');
+    } else {
+      finalBtn.disabled = false;
+      finalBtn.textContent = '✓ 최종 제출';
+      finalBtn.style.cssText = 'animation:pulseGlow 1.4s ease-in-out infinite';
+      finalBtn.onclick = openSubmitConfirm;
+      finalBtn.classList.add('primary');
+    }
+  }
 }
 
 /* ─── 제출 확인 모달 ─────────────────────────── */
 function openSubmitConfirm() {
   if (!state.currentExam) return;
   const unanswered = state.currentExam.answers.filter(a => a === null).length;
-  if (unanswered > 0) return;
+  if (unanswered > 0) { alert(`미응답 문항이 ${unanswered}개 남아 있습니다.`); return; }
   modalRoot.innerHTML = `
     <div class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="submitModalTitle">
       <section class="modal sm">
@@ -3082,35 +3124,47 @@ function adminRefreshData() {
 
 function renderUserManager() {
   const rows = filterUsers();
+  const typeOptions = ["전체","이루자","협력사"];
+
+  // 구분 기반 소속 필터 목록
+  const deptPool = state.filters.userType === "전체"
+    ? managedAffiliations
+    : managedAffiliations.filter(a => (typeof a==="string"?"이루자":a.type) === state.filters.userType);
+  const deptNames = ["전체", ...deptPool.map(a => typeof a==="string"?a:a.name)];
+
   return `
     <section class="card">
       <div class="section-head">
-        <div>
-          <h2>응시자 관리</h2>
-        </div>
+        <div><h2>응시자 관리</h2></div>
         <div style="display:flex;gap:8px">
           <button id="refreshBtn" class="btn" type="button" onclick="refreshFromRemote()">⟳ 새로고침</button>
           <button class="btn primary" type="button" onclick="openUserModal()">응시자 추가</button>
         </div>
       </div>
 
-      <div class="filters" style="grid-template-columns:1.4fr 1fr 1fr auto">
+      <div class="filters" style="grid-template-columns:1fr 1fr 1fr 1fr auto">
         <div class="field">
-          <label for="userSearch">검색</label>
-          <input id="userSearch" value="${escapeHtml(state.filters.userSearch)}"
+          <label>검색</label>
+          <input value="${escapeHtml(state.filters.userSearch)}"
+            placeholder="이름·소속 검색"
             oninput="state.filters.userSearch=this.value; renderAdminDashboard();">
         </div>
         <div class="field">
-          <label for="userDepartment">소속</label>
-          <select id="userDepartment" onchange="state.filters.userDepartment=this.value; renderAdminDashboard();">
-            ${optionHtml("전체", state.filters.userDepartment)}
-            ${getDepartments().map(dep => optionHtml(dep, state.filters.userDepartment)).join("")}
+          <label>구분</label>
+          <select onchange="state.filters.userType=this.value; state.filters.userDepartment='전체'; renderAdminDashboard();">
+            ${typeOptions.map(v => `<option value="${v}" ${state.filters.userType===v?"selected":""}>${v}</option>`).join("")}
           </select>
         </div>
         <div class="field">
-          <label for="userStatus">응시 상태</label>
-          <select id="userStatus" onchange="state.filters.userStatus=this.value; renderAdminDashboard();">
-            ${["전체", "응시 완료", "미응시"].map(v => optionHtml(v, state.filters.userStatus)).join("")}
+          <label>소속</label>
+          <select onchange="state.filters.userDepartment=this.value; renderAdminDashboard();">
+            ${deptNames.map(v => `<option value="${v}" ${state.filters.userDepartment===v?"selected":""}>${v}</option>`).join("")}
+          </select>
+        </div>
+        <div class="field">
+          <label>응시 상태</label>
+          <select onchange="state.filters.userStatus=this.value; renderAdminDashboard();">
+            ${["전체","응시 완료","미응시"].map(v => `<option value="${v}" ${state.filters.userStatus===v?"selected":""}>${v}</option>`).join("")}
           </select>
         </div>
         <button class="btn" type="button" onclick="resetUserFilters()">초기화</button>
@@ -3119,28 +3173,34 @@ function renderUserManager() {
       <div class="table-wrap">
         <table>
           <thead>
-            <tr><th>소속</th><th>성명</th><th>이번 분기 응시 여부</th><th>최근 점수</th><th>최근 응시일</th><th>최근 상태</th><th>자격 유효기간</th><th>관리</th></tr>
+            <tr>
+              <th>구분</th><th>소속</th><th>성명</th>
+              <th>이번 분기</th><th>최근 점수</th><th>최근 응시일</th><th>상태</th><th>자격 유효기간</th><th>관리</th>
+            </tr>
           </thead>
           <tbody>
             ${rows.map(user => {
               const attempted = hasAttemptedThisQuarter(user.employeeId);
               const latest    = getLatestResult(user.employeeId);
+              const affil     = managedAffiliations.find(a => (typeof a==="string"?a:a.name) === user.department);
+              const userType  = affil ? (typeof affil==="string" ? "이루자" : affil.type) : "-";
+              const typeColor = userType === "이루자" ? "color:#2563eb;background:#eff6ff" : "color:#059669;background:#f0fdf4";
               return `
                 <tr>
+                  <td><span style="font-size:12px;font-weight:700;padding:2px 8px;border-radius:99px;${typeColor}">${escapeHtml(userType)}</span></td>
                   <td>${escapeHtml(user.department)}</td>
                   <td>${escapeHtml(user.name)}</td>
-                  <td><span class="badge ${attempted ? "success" : "warning"}">${attempted ? "응시 완료" : "미응시"}</span></td>
-                  <td>${latest ? `${latest.percentageScore}점` : "-"}</td>
-                  <td>${latest ? formatDateTime(latest.submittedAt) : "-"}</td>
-                  <td>${latest ? renderResultBadge(latest) : "-"}</td>
-                  <td>${latest && getCertificationValidity(latest) ? `${formatDateOnly(getCertificationValidity(latest).validFrom)} ~ ${formatDateOnly(getCertificationValidity(latest).validUntil)}` : "-"}</td>
-                  <td>
-                    <button class="btn small" type="button" onclick="resetCandidateRecords('${user.employeeId}')">기록 초기화</button>
+                  <td><span class="badge ${attempted?"success":"warning"}">${attempted?"완료":"미응시"}</span></td>
+                  <td>${latest?`${latest.percentageScore}점`:"-"}</td>
+                  <td>${latest?formatDateTime(latest.submittedAt):"-"}</td>
+                  <td>${latest?renderResultBadge(latest):"-"}</td>
+                  <td>${latest&&getCertificationValidity(latest)?`${formatDateOnly(getCertificationValidity(latest).validFrom)}~${formatDateOnly(getCertificationValidity(latest).validUntil)}`:"-"}</td>
+                  <td style="white-space:nowrap">
+                    <button class="btn small" type="button" onclick="resetCandidateRecords('${user.employeeId}')">초기화</button>
                     <button class="btn small danger" type="button" onclick="deleteCandidate('${user.employeeId}')">삭제</button>
                   </td>
-                </tr>
-              `;
-            }).join("") || `<tr><td colspan="8" class="empty">조건에 맞는 응시자가 없습니다.</td></tr>`}
+                </tr>`;
+            }).join("") || `<tr><td colspan="9" class="empty">조건에 맞는 응시자가 없습니다.</td></tr>`}
           </tbody>
         </table>
       </div>
@@ -3148,61 +3208,86 @@ function renderUserManager() {
   `;
 }
 
+
 function filterUsers() {
   return getCandidateUsers().filter(user => {
-    const keyword         = state.filters.userSearch.trim().toLowerCase();
-    const attempted       = hasAttemptedThisQuarter(user.employeeId);
-    const matchesKeyword  = !keyword || [user.department, user.name].some(v => v.toLowerCase().includes(keyword));
-    const matchesDept     = state.filters.userDepartment === "전체" || user.department === state.filters.userDepartment;
-    const matchesStatus   = state.filters.userStatus === "전체" ||
+    const keyword        = state.filters.userSearch.trim().toLowerCase();
+    const attempted      = hasAttemptedThisQuarter(user.employeeId);
+    const affil          = managedAffiliations.find(a => (typeof a==="string"?a:a.name) === user.department);
+    const userType       = affil ? (typeof affil==="string" ? "이루자" : affil.type) : "이루자";
+    const matchesKeyword = !keyword || [user.department, user.name].some(v => v.toLowerCase().includes(keyword));
+    const matchesType    = state.filters.userType === "전체" || userType === state.filters.userType;
+    const matchesDept    = state.filters.userDepartment === "전체" || user.department === state.filters.userDepartment;
+    const matchesStatus  = state.filters.userStatus === "전체" ||
       (state.filters.userStatus === "응시 완료" && attempted) ||
       (state.filters.userStatus === "미응시"    && !attempted);
-    return matchesKeyword && matchesDept && matchesStatus;
+    return matchesKeyword && matchesType && matchesDept && matchesStatus;
   });
 }
 
 function resetUserFilters() {
   state.filters.userSearch     = "";
+  state.filters.userType       = "전체";
   state.filters.userDepartment = "전체";
   state.filters.userStatus     = "전체";
   renderAdminDashboard();
 }
 
 function openUserModal() {
-  const affiliations = getAffiliations ? getAffiliations() : [];
+  const iruja   = managedAffiliations.filter(a => (typeof a==="string"?"이루자":a.type) === "이루자");
+  const partner = managedAffiliations.filter(a => (typeof a==="string"?"이루자":a.type) === "협력사");
+
   modalRoot.innerHTML = `
     <div class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="userModalTitle">
       <section class="modal sm">
         <h2 id="userModalTitle">응시자 추가</h2>
         <form onsubmit="addUser(event)">
+
           <div class="field">
-            <label for="newUserDepartment">소속</label>
-            <select id="newUserDepartment" name="department" required>
-              <option value="">소속을 선택하세요</option>
-              ${(() => {
-                const iruja = affiliations.filter(a => a.type === "이루자" || !a.type);
-                const partner = affiliations.filter(a => a.type === "협력사");
-                let opts = "";
-                if (iruja.length) opts += `<optgroup label="이루자">${iruja.map(a => `<option value="${escapeHtml(typeof a==='string'?a:a.name)}">${escapeHtml(typeof a==='string'?a:a.name)}</option>`).join("")}</optgroup>`;
-                if (partner.length) opts += `<optgroup label="협력사">${partner.map(a => `<option value="${escapeHtml(typeof a==='string'?a:a.name)}">${escapeHtml(typeof a==='string'?a:a.name)}</option>`).join("")}</optgroup>`;
-                return opts;
-              })()}
+            <label for="newUserType">구분</label>
+            <select id="newUserType" name="type" required
+              onchange="updateUserModalDepts(this.value)">
+              <option value="" hidden disabled selected>구분을 선택하세요</option>
+              <option value="이루자">이루자</option>
+              <option value="협력사">협력사</option>
             </select>
           </div>
+
+          <div class="field">
+            <label for="newUserDepartment">소속</label>
+            <select id="newUserDepartment" name="department" required disabled>
+              <option value="" hidden disabled selected>구분 먼저 선택하세요</option>
+            </select>
+          </div>
+
           <div class="field">
             <label for="newUserName">성명</label>
-            <input id="newUserName" name="name" required>
+            <input id="newUserName" name="name" placeholder="성명을 입력하세요" required autocomplete="off">
           </div>
-          <div class="modal-actions">
+
+          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
             <button class="btn" type="button" onclick="closeModal()">취소</button>
             <button class="btn primary" type="submit">추가</button>
           </div>
         </form>
       </section>
-    </div>
-  `;
-  setTimeout(() => document.getElementById("newUserDepartment")?.focus(), 0);
+    </div>`;
 }
+
+function updateUserModalDepts(type) {
+  const sel = document.getElementById("newUserDepartment");
+  if (!sel) return;
+  const list = managedAffiliations.filter(a =>
+    (typeof a==="string" ? "이루자" : a.type) === type
+  );
+  sel.disabled = false;
+  sel.innerHTML = `<option value="" hidden disabled selected>소속을 선택하세요</option>` +
+    list.map(a => {
+      const name = typeof a==="string" ? a : a.name;
+      return `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`;
+    }).join("");
+}
+
 
 function generateEmployeeId() {
   const now = new Date();
@@ -3225,6 +3310,7 @@ function generateEmployeeId() {
 function addUser(event) {
   event.preventDefault();
   const form       = new FormData(event.currentTarget);
+  const type       = String(form.get("type") || "이루자").trim();
   const department = String(form.get("department")).trim();
   const name       = String(form.get("name")).trim();
   const employeeId = generateEmployeeId();
@@ -3269,53 +3355,92 @@ function renderAffiliationManager() {
   const iruja   = managedAffiliations.filter(a => a.type === "이루자");
   const partner = managedAffiliations.filter(a => a.type === "협력사");
 
-  function renderGroup(list, type) {
-    const label = type === "이루자" ? "부서" : "협력사명";
+  function groupRows(list, colspan) {
+    if (!list.length) return `<tr><td colspan="${colspan}" style="text-align:center;padding:16px;color:#94a3b8;font-size:13px">등록된 항목이 없습니다.</td></tr>`;
+    return list.map(dep => `
+      <tr>
+        <td style="padding:10px 14px;font-size:14px;font-weight:600">${escapeHtml(dep.name)}</td>
+        <td style="padding:10px 14px;text-align:center;font-size:14px">${users.filter(u=>u.role==="candidate"&&u.department===dep.name).length}명</td>
+        <td style="padding:10px 14px;text-align:center"><button class="btn danger small" onclick="removeAffiliation('${escapeHtml(dep.name)}')">삭제</button></td>
+      </tr>`).join("");
+  }
+
+  function addRow(id, placeholder, type) {
     return `
-      <div class="affiliation-add-form" style="margin-bottom:10px">
-        <div class="field">
-          <input name="affiliation" placeholder="새 ${label} 입력" required
-            onkeydown="if(event.key==='Enter'){event.preventDefault();addAffiliationDirect(this.value,'${type}',this);}">
-          <input type="hidden" name="affiliationType" value="${type}">
-        </div>
-        <button class="btn primary" type="button"
-          onclick="const inp=this.previousElementSibling.previousElementSibling;addAffiliationDirect(inp.value,'${type}',inp)">
+      <div style="display:flex;gap:8px;margin-bottom:12px;width:100%;box-sizing:border-box">
+        <input id="${id}" type="text" placeholder="${placeholder}"
+          style="flex:1;min-width:0;padding:8px 12px;border:1.5px solid var(--color-border);border-radius:8px;font-size:14px;box-sizing:border-box;font-family:inherit"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();addAffiliationDirect(this.value,'${type}',this)}">
+        <button class="btn primary" type="button" style="white-space:nowrap;flex-shrink:0"
+          onclick="addAffiliationDirect(document.getElementById('${id}').value,'${type}',document.getElementById('${id}'))">
           + 추가
         </button>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>${type === "이루자" ? "부서명" : "협력사명"}</th><th>현재 응시자 수</th><th>관리</th></tr></thead>
-          <tbody>
-            ${list.length === 0 ? `<tr><td colspan="3" class="empty">등록된 ${label}이 없습니다.</td></tr>` :
-              list.map(dep => `
-                <tr>
-                  <td><strong>${escapeHtml(dep.name)}</strong></td>
-                  <td>${users.filter(u => u.role === "candidate" && u.department === dep.name).length}명</td>
-                  <td><button class="btn danger small" onclick="removeAffiliation('${escapeHtml(dep.name)}')">삭제</button></td>
-                </tr>`).join("")}
-          </tbody>
-        </table>
       </div>`;
   }
 
   return `
-    <section class="card">
+    <section class="card" style="overflow:hidden">
       <div class="section-head">
         <div><h2>소속 관리</h2></div>
       </div>
-      <div class="grid two" style="gap:20px;align-items:start">
-        <div>
-          <h3 style="margin:0 0 12px;color:var(--primary);font-size:15px">🏢 이루자 (부서)</h3>
-          ${renderGroup(iruja, "이루자")}
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start;min-width:0">
+
+        <div style="min-width:0;overflow:hidden">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+            <span style="font-size:18px">🏢</span>
+            <span style="font-size:14px;font-weight:700;color:var(--primary)">이루자 (부서)</span>
+            <span style="margin-left:auto;background:#eff6ff;color:#2563eb;font-size:12px;font-weight:700;padding:2px 8px;border-radius:99px">${iruja.length}개</span>
+          </div>
+          ${addRow("newIrujaName","새 부서명 입력","이루자")}
+          <div style="overflow:hidden;border-radius:8px;border:1px solid var(--color-border)">
+            <table style="width:100%;border-collapse:collapse;table-layout:fixed">
+              <colgroup>
+                <col style="width:40%"><col style="width:30%"><col style="width:30%">
+              </colgroup>
+              <thead>
+                <tr style="background:#f1f5f9">
+                  <th style="padding:10px 14px;text-align:left;font-size:13px;font-weight:600;color:#475569">부서명</th>
+                  <th style="padding:10px 14px;text-align:center;font-size:13px;font-weight:600;color:#475569">응시자</th>
+                  <th style="padding:10px 14px;text-align:center;font-size:13px;font-weight:600;color:#475569">관리</th>
+                </tr>
+              </thead>
+              <tbody style="font-size:14px">
+                ${groupRows(iruja, 3)}
+              </tbody>
+            </table>
+          </div>
         </div>
-        <div>
-          <h3 style="margin:0 0 12px;color:var(--success);font-size:15px">🤝 협력사</h3>
-          ${renderGroup(partner, "협력사")}
+
+        <div style="min-width:0;overflow:hidden">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+            <span style="font-size:18px">🤝</span>
+            <span style="font-size:14px;font-weight:700;color:#059669">협력사</span>
+            <span style="margin-left:auto;background:#f0fdf4;color:#059669;font-size:12px;font-weight:700;padding:2px 8px;border-radius:99px">${partner.length}개</span>
+          </div>
+          ${addRow("newPartnerName","새 협력사명 입력","협력사")}
+          <div style="overflow:hidden;border-radius:8px;border:1px solid var(--color-border)">
+            <table style="width:100%;border-collapse:collapse;table-layout:fixed">
+              <colgroup>
+                <col style="width:40%"><col style="width:30%"><col style="width:30%">
+              </colgroup>
+              <thead>
+                <tr style="background:#f0fdf4">
+                  <th style="padding:10px 14px;text-align:left;font-size:13px;font-weight:600;color:#475569">협력사명</th>
+                  <th style="padding:10px 14px;text-align:center;font-size:13px;font-weight:600;color:#475569">응시자</th>
+                  <th style="padding:10px 14px;text-align:center;font-size:13px;font-weight:600;color:#475569">관리</th>
+                </tr>
+              </thead>
+              <tbody style="font-size:14px">
+                ${groupRows(partner, 3)}
+              </tbody>
+            </table>
+          </div>
         </div>
+
       </div>
     </section>`;
 }
+
 
 function addAffiliationDirect(name, type, inputEl) {
   name = String(name || "").trim();
