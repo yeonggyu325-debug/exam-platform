@@ -1210,16 +1210,6 @@ tr:last-child td { border-bottom: 0; }
   line-height: 1.5;
   text-align: center;
 }
-.ready-rules li.rule-warn {
-  color: #b91c1c;
-  background: #fee2e2;
-  border-left: 4px solid #dc2626;
-  padding: 10px 12px;
-  border-radius: 8px;
-  font-weight: 700;
-  list-style: none;
-  margin-top: 4px;
-}
 [data-theme="dark"] .rule-warn {
   color: #fca5a5;
   background: rgba(185,28,28,.18);
@@ -2439,7 +2429,7 @@ function renderCandidateDashboard() {
             <li>각 문항의 보기 중 가장 적절한 답안 1개를 선택하여 주십시오.</li>
             <li>모든 문항에 응답하여야 최종 제출이 가능하며, 제출 후에는 답안을 수정할 수 없으므로 제출 전 반드시 확인하여 주십시오.</li>
             <li>응시 시간이 초과될 경우 답안이 자동으로 제출되며, 응답이 완료된 문항까지만 채점됩니다. 시간 관리에 유의하여 주십시오.</li>
-            <li class="rule-warn">응시 중 화면 전환은 자동으로 기록되며, 3회 이상 이탈 시 부정행위로 간주되어 실격 처리될 수 있습니다.</li>
+            <li>응시 중 화면 전환은 자동으로 기록되며, 3회 이상 이탈 시 부정행위로 간주되어 실격 처리될 수 있습니다.</li>
           </ol>
 
           ${shortageWarnings.length ? `<div class="notice danger" style="margin:0 0 4px">${shortageWarnings.map(escapeHtml).join('<br>')}</div>` : ''}
