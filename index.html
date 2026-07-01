@@ -1718,7 +1718,7 @@ function applyRemoteData(data) {
   // 시험 진행 중인 응시자만 로컬 activeExam 병합 (초기화된 응시자는 제외)
   mergeLocalActiveExams();
   // 서버 데이터를 로컬스토리지에 즉시 반영 → 다음 로드 시 최신 서버 상태 유지
-  _overwriteLocalCache();
+  overwriteLocalCache();
 }
 
 function overwriteLocalCache() {
