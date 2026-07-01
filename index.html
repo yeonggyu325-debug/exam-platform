@@ -2451,14 +2451,117 @@ function addUser(event) {
   renderAdminDashboard();
 }
 
-function resetCandidateRecords(employeeId) {
+async function resetCandidateRecords(employeeId) {
   const user = users.find(item => item.employeeId === employeeId);
   if (!user) return;
-  if (!confirm(`${user.department} ${user.name} 응시자의 시험 기록과 로그를 초기화할까요?`)) return;
-  examResults = examResults.filter(result => result.employeeId !== employeeId);
-  activityLogs = activityLogs.filter(log => log.employeeId !== employeeId);
-  savePersistentData();
-  renderAdminDashboard();
+
+  if (!confirm(`${user.department} ${user.name} 응시자의 시험 결과, 진행 중 시험, 응시 로그를 모두 초기화할까요?\n\n초기화 후 해당 응시자는 다시 처음부터 응시할 수 있습니다.`)) {
+    return;
+  }
+
+  const btns = document.querySelectorAll(`button[onclick="resetCandidateRecords('${employeeId}')"]`);
+  btns.forEach(btn => {
+    btn.disabled = true;
+    btn.textContent = "초기화 중...";
+  });
+
+  try {
+    // 1) 서버 권위 데이터에서 먼저 삭제
+    if (isAppsScriptRuntime()) {
+      await new Promise((resolve, reject) => {
+        google.script.run
+          .withSuccessHandler(resolve)
+          .withFailureHandler(reject)
+          .resetCandidateRecordsBackend({ employeeId });
+      });
+    } else if (isExternalApiRuntime()) {
+      const res = await callExternalApi("resetCandidateRecords", { employeeId });
+      if (res && res.ok === false) {
+        throw new Error(res.message || "서버 초기화 실패");
+      }
+    }
+
+    // 2) 현재 브라우저 메모리에서도 삭제
+    examResults = examResults.filter(r => r.employeeId !== employeeId);
+    activityLogs = activityLogs.filter(l => l.employeeId !== employeeId);
+    activeExams = activeExams.filter(a => {
+      const key = a.key || "";
+      const examEmployeeId = a.employeeId || a.exam?.employeeId || "";
+      return examEmployeeId !== employeeId && !key.startsWith(employeeId + "__");
+    });
+
+    // 3) 현재 로그인 사용자가 해당 응시자라면 결과/시험 상태 제거
+    if (state.currentUser?.employeeId === employeeId) {
+      state.lastResult = null;
+      state.currentExam = null;
+      state.isSubmitting = false;
+      state.view = "candidate";
+    }
+
+    // 4) 로컬스토리지에서도 삭제
+    clearCandidateLocalCache(employeeId);
+
+    // 5) 서버 최신 데이터 재조회
+    if (isAppsScriptRuntime() || isExternalApiRuntime()) {
+      await new Promise(resolve => {
+        loadRemoteData(() => resolve());
+      });
+    }
+
+    alert("초기화가 완료되었습니다. 해당 응시자는 다시 응시할 수 있습니다.");
+
+    state.adminSection = "users";
+    renderAdminDashboard();
+
+  } catch (e) {
+    alert("초기화 중 오류가 발생했습니다: " + e.message);
+    btns.forEach(btn => {
+      btn.disabled = false;
+      btn.textContent = "초기화";
+    });
+  }
+}
+
+  function clearCandidateLocalCache(employeeId) {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+
+    const localData = JSON.parse(raw);
+
+    if (Array.isArray(localData.examResults)) {
+      localData.examResults = localData.examResults.filter(r => r.employeeId !== employeeId);
+    }
+
+    if (Array.isArray(localData.activityLogs)) {
+      localData.activityLogs = localData.activityLogs.filter(l => l.employeeId !== employeeId);
+    }
+
+    if (Array.isArray(localData.activeExams)) {
+      localData.activeExams = localData.activeExams.filter(a => {
+        const key = a.key || "";
+        const examEmployeeId = a.employeeId || a.exam?.employeeId || "";
+        return examEmployeeId !== employeeId && !key.startsWith(employeeId + "__");
+      });
+    }
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(localData));
+  } catch (e) {
+    console.warn("응시자 로컬 캐시 초기화 실패:", e);
+  }
+
+  try {
+    const sessionRaw = sessionStorage.getItem("HNIRUJA_SESSION");
+    if (sessionRaw) {
+      const session = JSON.parse(sessionRaw);
+      if (session.user?.employeeId === employeeId) {
+        session.view = "candidate";
+        sessionStorage.setItem("HNIRUJA_SESSION", JSON.stringify(session));
+      }
+    }
+  } catch (e) {
+    console.warn("응시자 세션 캐시 초기화 실패:", e);
+  }
 }
 
 function deleteCandidate(employeeId) {
