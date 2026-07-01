@@ -1635,6 +1635,14 @@ function mergeLocalActiveExams() {
     if (!Array.isArray(localData.activeExams)) return;
     localData.activeExams.forEach(localRecord => {
       if (!localRecord?.key || localRecord.status !== "in_progress") return;
+      // 초기화된 응시자 감지: 서버 examResults에 해당 employeeId 기록이 없고
+      // 서버 activeExams에도 없으면 → 관리자가 초기화한 것으로 판단, 로컬 것 무시
+      const empId = localRecord.employeeId || localRecord.key?.split("_")[0];
+      const quarter = getCurrentQuarter();
+      const serverHasResult = examResults.some(r => r.employeeId === empId);
+      const serverHasActive = activeExams.some(a => a.key === localRecord.key);
+      // 서버에 결과도 없고 activeExam도 없으면 초기화된 상태 → 병합 스킵
+      if (!serverHasResult && !serverHasActive) return;
       const remoteIndex = activeExams.findIndex(item => item.key === localRecord.key);
       const remoteRecord = remoteIndex >= 0 ? activeExams[remoteIndex] : null;
       const localTime = new Date(localRecord.updatedAt || 0).getTime();
@@ -3864,14 +3872,27 @@ function resetCandidateRecords(employeeId) {
   if (!user) return;
   if (!confirm(`${user.department} ${user.name} 응시자의 시험 기록과 로그를 초기화할까요?\n\n재접속 시 처음부터 응시 가능합니다.`)) return;
 
-  // 결과 + 로그 + 진행중 시험 캐시 모두 제거
+  // 메모리에서 제거
   examResults  = examResults.filter(r => r.employeeId !== employeeId);
   activityLogs = activityLogs.filter(l => l.employeeId !== employeeId);
-  activeExams  = activeExams.filter(a => {
-    const key = getActiveExamKey(employeeId, getCurrentQuarter());
-    return a.key !== key && !a.key?.startsWith(employeeId + '_');
-  });
+  activeExams  = activeExams.filter(a => !a.key?.startsWith(employeeId + '_'));
 
+  // 로컬스토리지에서도 해당 응시자 캐시 제거 (재접속 시 결과화면 복귀 방지)
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const localData = JSON.parse(raw);
+      if (Array.isArray(localData.examResults))
+        localData.examResults = localData.examResults.filter(r => r.employeeId !== employeeId);
+      if (Array.isArray(localData.activityLogs))
+        localData.activityLogs = localData.activityLogs.filter(l => l.employeeId !== employeeId);
+      if (Array.isArray(localData.activeExams))
+        localData.activeExams = localData.activeExams.filter(a => !a.key?.startsWith(employeeId + '_'));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(localData));
+    }
+  } catch(e) { console.warn("로컬 초기화 실패:", e); }
+
+  // 서버에도 즉시 반영
   savePersistentData();
   renderAdminDashboard();
 }
