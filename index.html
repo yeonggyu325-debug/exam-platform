@@ -3072,7 +3072,20 @@ function renderResultScreen() {
   clearTimer();
   removeExamGuards();
   clearIntroCountdown();
-  const result = state.lastResult || getLatestResult(state.currentUser.employeeId);
+  // 서버 동기화 완료 후라면 최신 examResults 기준으로 재확인
+  if (state.currentUser) {
+    const empId = state.currentUser.employeeId;
+    const serverResult = examResults.find(r =>
+      r.employeeId === empId && r.quarter === getCurrentQuarter()
+    );
+    if (!serverResult && !state.lastResult) {
+      state.view = "candidate";
+      renderCandidateDashboard();
+      return;
+    }
+    if (serverResult) state.lastResult = serverResult;
+  }
+  const result = state.lastResult || getLatestResult(state.currentUser?.employeeId);
   if (!result) {
     state.view = "candidate";
     renderCandidateDashboard();
@@ -4642,9 +4655,26 @@ function renderLogManager() {
         setTimeout(() => { startTimer(); }, 100);
       }
 
-      // 백그라운드 원격 동기화
+      // 백그라운드 원격 동기화 — result 화면은 서버 검증 후 재확인
       if (isAppsScriptRuntime() || isExternalApiRuntime()) {
-        loadRemoteData((ok) => { if (ok && state.view !== "exam") render(); });
+        loadRemoteData((ok) => {
+          if (!ok) return;
+          // 결과 화면인 경우: 서버 데이터 기준으로 재검증
+          if (state.view === "result" && state.currentUser) {
+            const empId = state.currentUser.employeeId;
+            const serverResult = examResults.find(r =>
+              r.employeeId === empId && r.quarter === getCurrentQuarter()
+            );
+            if (!serverResult) {
+              // 서버에 결과 없음 = 초기화됨 → 대기 화면으로
+              state.lastResult = null;
+              state.view = "candidate";
+            } else {
+              state.lastResult = serverResult;
+            }
+          }
+          if (state.view !== "exam") render();
+        });
       }
     }
     initApp();
