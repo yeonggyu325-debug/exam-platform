@@ -422,3 +422,41 @@ function resetAllData() {
   sheet.getRange("B1").setValue("");
   Logger.log("✅ 전체 데이터 초기화 완료");
 }
+
+function doPost(e) {
+  try {
+    const body = JSON.parse(e.postData.contents);
+    const action = body.action;
+    const payload = body.payload || {};
+
+    let result;
+    switch (action) {
+      case "getAppData":
+        result = getAppData();
+        break;
+      case "saveAppData":
+        result = saveAppData(payload);
+        break;
+      case "appendExamSubmission":
+        result = appendExamSubmission(payload.result, payload.log);
+        break;
+      case "adminLogin":
+        result = adminLogin(payload);
+        break;
+      default:
+        return ContentService.createTextOutput(
+          JSON.stringify({ ok: false, message: "알 수 없는 action: " + action })
+        ).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    return ContentService.createTextOutput(
+      JSON.stringify({ ok: true, data: result })
+    ).setMimeType(ContentService.MimeType.JSON);
+
+  } catch (err) {
+    Logger.log("doPost error: " + err.message);
+    return ContentService.createTextOutput(
+      JSON.stringify({ ok: false, message: err.message })
+    ).setMimeType(ContentService.MimeType.JSON);
+  }
+}
