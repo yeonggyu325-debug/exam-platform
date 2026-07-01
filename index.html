@@ -57,10 +57,6 @@ body {
   color: var(--text);
   font-family: "Pretendard Variable", "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   line-height: 1.5;
-  overscroll-behavior-y: none; /* pull-to-refresh 차단 */
-}
-html {
-  overscroll-behavior-y: none;
 }
 
 button, input, select, textarea { font: inherit; }
@@ -1086,17 +1082,22 @@ tr:last-child td { border-bottom: 0; }
 .ready-layout {
   display: flex;
   flex-direction: column;
-  min-height: calc(100vh - 64px);
+  /* topbar가 없을 때(로그인 화면)는 100vh, 있을 때는 topbar 빼기 */
+  height: calc(100vh - 64px);
   max-width: 640px;
   margin: 0 auto;
   padding: 0 12px;
   box-sizing: border-box;
 }
 
-/* 안내 내용 */
+/* 안내 내용 — 스크롤 가능 */
 .ready-body {
   flex: 1;
+  overflow-y: auto;
   padding: 20px 0 8px;
+  /* 스크롤바 얇게 */
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
 }
 
 /* 안내 카드 */
@@ -1408,7 +1409,6 @@ tr:last-child td { border-bottom: 0; }
   font-weight: 800;
   margin-right: 4px;
 }
-
 
 </style>
 </head>
@@ -1912,12 +1912,6 @@ function render() {
       }));
     } catch(e) {}
   }
-  // 관리자 화면에서만 새로고침 허용, 나머지 모든 화면 차단
-  if (state.view === "admin") {
-    removeAppRefreshGuard();
-  } else {
-    addAppRefreshGuard();
-  }
   if (state.view === "loading")   renderLoadingScreen();
   if (state.view === "login")     renderLogin();
   if (state.view === "candidate") renderCandidateDashboard();
@@ -2108,59 +2102,56 @@ function handleLogin(event) {
   if (candidate) {
     state.currentUser = candidate;
     state.loginError  = "";
-    // 로컬 데이터로 즉시 화면 결정 (빠른 진입)
-    function _resolveLoginView() {
+    // 로그인 후 데이터 로딩 화면 표시
+    state.view = "loading";
+    renderLoadingScreen("응시 정보를 불러오는 중입니다", 10);
+    // 프로그레스 애니메이션
+    let _lPct = 10;
+    const _lTimer = setInterval(() => {
+      _lPct = Math.min(85, _lPct + (Math.random() * 12 + 5));
+      updateLoadingProgress(Math.round(_lPct), "응시 정보를 불러오는 중입니다");
+    }, 400);
+    // 원격 최신 데이터 동기화 후 화면 결정 (관리자 초기화가 즉시 반영됨)
+    loadRemoteData(() => {
+      clearInterval(_lTimer);
+      updateLoadingProgress(100, "완료!");
       const currentQuarterResult = examResults
         .filter(result => result.employeeId === candidate.employeeId && result.quarter === getCurrentQuarter())
         .sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt))[0];
       if (currentQuarterResult) {
         state.lastResult = currentQuarterResult;
         state.view = "result";
-        render();
+        setTimeout(() => render(), 200);
         return;
       }
+
       const activeRecord = getActiveExamRecord(candidate.employeeId);
-      if (activeRecord?.exam) {
-        state.currentExam = activeRecord.exam;
-        const savedRemaining = Number(activeRecord.remainingSeconds || examSettings.timeLimitMinutes * 60);
-        const savedAt = activeRecord.updatedAt ? new Date(activeRecord.updatedAt).getTime() : Date.now();
-        const elapsedSecs = Math.floor((Date.now() - savedAt) / 1000);
-        state.remainingSeconds = Math.max(1, savedRemaining - elapsedSecs);
-        state.currentQuestionIndex = 0;
-        state.lastResult = null;
-        state.isSubmitting = false;
-        state.view = "exam";
-        if (state.currentExam.tabSwitchCount >= examSettings.tabSwitchLimit) {
-          state.currentExam.disqualified = true;
-          state.currentExam.disqualificationReason = `탭 전환 ${examSettings.tabSwitchLimit}회 이상`;
-          submitExam(true, true, `재접속 전 이탈 누적 ${state.currentExam.tabSwitchCount}회로 자동 제출 및 실격`);
-        } else {
-          renderExamScreen();
-          startTimer();
-        }
-        return;
-      }
+    if (activeRecord?.exam) {
+      state.currentExam = activeRecord.exam;
+      // 재접속 시 이탈해 있던 시간만큼 차감
+      const savedRemaining = Number(activeRecord.remainingSeconds || examSettings.timeLimitMinutes * 60);
+      const savedAt = activeRecord.updatedAt ? new Date(activeRecord.updatedAt).getTime() : Date.now();
+      const elapsedSecs = Math.floor((Date.now() - savedAt) / 1000);
+      state.remainingSeconds = Math.max(1, savedRemaining - elapsedSecs);
+      state.currentQuestionIndex = 0;
       state.lastResult = null;
-      state.view = "candidate";
-      render();
-    }
-    // 시험 진행 중이면 로컬로 즉시 복원 (타이머 연속성)
-    const _activeRec = getActiveExamRecord(candidate.employeeId);
-    if (_activeRec?.exam) {
-      _resolveLoginView();
-    } else {
-      // 결과/대기 화면은 원격 데이터 확인 후 진입 (관리자 초기화 즉시 반영)
-      if (isAppsScriptRuntime() || isExternalApiRuntime()) {
-        state.view = "loading";
-        renderLoadingScreen("응시 정보를 확인하는 중입니다", 30);
-        loadRemoteData(() => {
-          updateLoadingProgress(100, "완료!");
-          setTimeout(() => _resolveLoginView(), 150);
-        });
+      state.isSubmitting = false;
+      state.view = "exam";
+      if (state.currentExam.tabSwitchCount >= examSettings.tabSwitchLimit) {
+        state.currentExam.disqualified = true;
+        state.currentExam.disqualificationReason = `탭 전환 ${examSettings.tabSwitchLimit}회 이상`;
+        submitExam(true, true, `재접속 전 이탈 누적 ${state.currentExam.tabSwitchCount}회로 자동 제출 및 실격`);
       } else {
-        _resolveLoginView();
+        renderExamScreen();
+        startTimer();
       }
-    } // loadRemoteData 콜백 끝
+      return;
+    }
+
+    state.lastResult = null;
+      state.view = "candidate";
+      setTimeout(() => render(), 200);
+    }); // loadRemoteData 콜백 끝
     return;
   }
 
@@ -2448,46 +2439,6 @@ function handlePreExamVisibility() {
   }
 }
 
-// ── 새로고침 차단 가드 (관리자 화면 제외 전체) ──────────────────────────────────
-function _appBeforeUnload(e) {
-  // 시험 중이 아닌 경우(로그인/대기/결과/로딩)는 조용히 차단
-  if (state.view === "exam") {
-    e.preventDefault();
-    e.returnValue = "시험이 진행 중입니다. 페이지를 이탈하면 응시 내용이 유실될 수 있습니다.";
-    return e.returnValue;
-  }
-  e.preventDefault();
-  e.returnValue = "";
-  return "";
-}
-function _appKeyDown(e) {
-  // F5 / Ctrl+R / Cmd+R 차단
-  if (e.key === "F5" || ((e.ctrlKey || e.metaKey) && (e.key === "r" || e.key === "R"))) {
-    e.preventDefault();
-    e.stopPropagation();
-  }
-}
-// 모바일 pull-to-refresh는 CSS overscroll-behavior:none으로만 차단 (터치 이벤트 불필요)
-let _appRefreshGuardActive = false;
-function addAppRefreshGuard() {
-  if (_appRefreshGuardActive) return;
-  _appRefreshGuardActive = true;
-  window.addEventListener("beforeunload", _appBeforeUnload);
-  window.addEventListener("keydown", _appKeyDown, true);
-  // pull-to-refresh는 CSS overscroll-behavior:none으로 고정 차단
-}
-function removeAppRefreshGuard() {
-  if (!_appRefreshGuardActive) return;
-  _appRefreshGuardActive = false;
-  window.removeEventListener("beforeunload", _appBeforeUnload);
-  window.removeEventListener("keydown", _appKeyDown, true);
-
-}
-
-// 구버전 호환 (로딩 가드 → 앱 가드로 통합)
-function addLoadingGuards()    { addAppRefreshGuard(); }
-function removeLoadingGuards() { /* 앱 가드는 관리자 화면에서만 해제 */ }
-
 function addExamGuards() {
   window.onbeforeunload = () => "시험이 진행 중입니다. 페이지를 이탈하면 응시 내용이 유실될 수 있습니다.";
   document.addEventListener("visibilitychange", handleVisibilityChange);
@@ -2508,8 +2459,8 @@ function handlePageHide() {
 
 function handleVisibilityChange() {
   if (document.hidden) {
-    // 로딩 중이거나 새로고침 직후면 무시
-    if (state.view === "loading" || window._appJustLoaded) return;
+    // 새로고침 직후 오감지 방지
+    if (window._appJustLoaded) return;
     // 이탈 시각 기록
     state._tabHiddenAt = Date.now();
     handleTabSwitchViolation("visibilitychange");
