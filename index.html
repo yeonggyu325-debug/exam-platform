@@ -696,6 +696,18 @@ tr:last-child td { border-bottom: 0; }
   .affiliation-add-form .btn { width: 100%; }
 }
 
+/* ── 관리자 응시상태 배지 (요구사항 §13) ── */
+.status-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 4px 10px; border-radius: 999px;
+  font-size: 12px; font-weight: 700; white-space: nowrap;
+}
+.status-ready        { background: #f3f4f6; color: #374151; }
+.status-progress     { background: #dbeafe; color: #1d4ed8; }
+.status-submitted    { background: #dcfce7; color: #15803d; }
+.status-disqualified { background: #fee2e2; color: #b91c1c; }
+.leave-warning       { color: #b91c1c; font-weight: 700; }
+
 
 
 /* ── Mobile optimized layout for Vercel/App use ── */
@@ -1694,26 +1706,39 @@ function applyRemoteData(data) {
   if (data && Array.isArray(data.questionBank)) questionBank = data.questionBank;
   if (data && data.examSettings) {
     examSettings = { ...examSettings, ...data.examSettings };
-    // categoryQuota에서 실제 문제은행에 없는 카테고리 자동 정리
     cleanOrphanQuota();
   }
   if (data && Array.isArray(data.examResults)) examResults = data.examResults;
   if (data && Array.isArray(data.activityLogs)) activityLogs = data.activityLogs;
   if (data && Array.isArray(data.activeExams)) activeExams = data.activeExams;
   if (data && Array.isArray(data.managedAffiliations)) {
-    // 구버전(문자열 배열) → 신버전(객체 배열) 자동 마이그레이션
     managedAffiliations = data.managedAffiliations.map(a =>
       typeof a === 'string' ? { name: a, type: '이루자' } : a
     );
   }
+  // 시험 진행 중인 응시자만 로컬 activeExam 병합 (초기화된 응시자는 제외)
   mergeLocalActiveExams();
+  // 서버 데이터를 로컬스토리지에 즉시 반영 → 다음 로드 시 최신 서버 상태 유지
+  _overwriteLocalCache();
+}
+
+function _overwriteLocalCache() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    const base = raw ? JSON.parse(raw) : {};
+    // examResults, activeExams, activityLogs는 서버 권위 데이터로 덮어씀
+    base.examResults  = examResults;
+    base.activeExams  = activeExams;
+    base.activityLogs = activityLogs;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(base));
+  } catch(e) {}
 }
 
 function loadRemoteData(done) {
   if (isAppsScriptRuntime()) {
     google.script.run
       .withSuccessHandler(data => {
-        try { applyRemoteData(data); done(true); }
+        try { applyRemoteData(data); state._remoteLoaded = true; done(true); }
         catch (error) { console.warn("스프레드시트 데이터 복원에 실패했습니다.", error); done(false); }
       })
       .withFailureHandler(error => {
@@ -1727,7 +1752,7 @@ function loadRemoteData(done) {
 
   if (isExternalApiRuntime()) {
     callExternalApi("getAppData")
-      .then(data => { applyRemoteData(data); done(true); })
+      .then(data => { applyRemoteData(data); state._remoteLoaded = true; done(true); })
       .catch(error => {
         console.warn("외부 API 연결에 실패했습니다. 브라우저 저장소로 전환합니다.", error);
         loadPersistentData();
@@ -2141,6 +2166,7 @@ function setTheme(theme) {
 function logout() {
   clearTimer();
   removeExamGuards();
+  stopAdminAutoRefresh(); // §14: 관리자 자동갱신 타이머 해제
   try { sessionStorage.removeItem("HNIRUJA_SESSION"); } catch(e) {}
   state.currentUser  = null;
   state.view         = "login";
@@ -2293,7 +2319,8 @@ function handleLogin(event) {
       const currentQuarterResult = examResults
         .filter(result => result.employeeId === candidate.employeeId && result.quarter === getCurrentQuarter())
         .sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt))[0];
-      if (currentQuarterResult) {
+      // 서버 동기화 완료(또는 오프라인) 후에만 결과화면 진입
+      if (currentQuarterResult && (state._remoteLoaded || (!isAppsScriptRuntime() && !isExternalApiRuntime()))) {
         state.lastResult = currentQuarterResult;
         state.view = "result";
         render();
@@ -2366,7 +2393,8 @@ function renderCandidateDashboard() {
   const attemptedResult = examResults
     .filter(r => r.employeeId === user.employeeId && r.quarter === quarter)
     .sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt))[0];
-  if (attemptedResult) {
+  // 서버 동기화 완료 후에만 결과화면으로 전환 (로컬캐시만 있으면 무시)
+  if (attemptedResult && state._remoteLoaded) {
     state.lastResult = attemptedResult;
     state.view = "result";
     renderResultScreen();
@@ -2499,6 +2527,16 @@ function startExam() {
   }
   clearIntroCountdown();
   const user = state.currentUser;
+  // §2: 이미 제출 완료 또는 실격이면 결과화면만 표시
+  if (!state.isTestMode) {
+    const existingResult = getLatestResult(user.employeeId);
+    if (existingResult) {
+      state.lastResult = existingResult;
+      state.view = "result";
+      renderResultScreen();
+      return;
+    }
+  }
   if (!state.isTestMode && hasAttemptedThisQuarter(user.employeeId)) {
     alert("이번 분기에는 이미 응시 완료했습니다.");
     renderCandidateDashboard();
@@ -2711,9 +2749,13 @@ function handleVisibilityChange() {
   }
 }
 function handleWindowBlur() {
+  // §8: visibilitychange 가 이미 처리했으면 blur 무시
   setTimeout(() => {
     if (window._appJustLoaded) return;
-    if (document.hidden) handleTabSwitchViolation("blur-confirmed");
+    if (!document.hidden) return;
+    const now = Date.now();
+    if (state.currentExam && now - state.currentExam.lastViolationAt < 3000) return;
+    handleTabSwitchViolation("blur-confirmed");
   }, 300);
 }
 
@@ -2751,7 +2793,8 @@ function handleTabSwitchViolation(source = "unknown") {
   if (state.view !== "exam" || !state.currentExam || state.isSubmitting) return;
 
   const now = Date.now();
-  if (now - state.currentExam.lastViolationAt < 900) return;
+  // §8: 3초 쿨다운 — 같은 이탈 이벤트 중복 카운트 방지
+  if (now - state.currentExam.lastViolationAt < 3000) return;
   state.currentExam.lastViolationAt = now;
 
   state.currentExam.tabSwitchCount += 1;
@@ -2991,8 +3034,12 @@ function calculateScore(exam) {
 }
 
 function submitExam(isAutoSubmit = false, forceDisqualified = false, submitMessage = "시험 제출 완료") {
+  // §7: 프론트 중복 제출 방지
   if (!state.currentExam || state.isSubmitting) return;
   state.isSubmitting = true;
+
+  const _submitBtn = document.getElementById("submitExamBtn");
+  if (_submitBtn) { _submitBtn.disabled = true; _submitBtn.textContent = "제출 중..."; }
 
   closeModal();
   clearTimer();
@@ -3001,8 +3048,9 @@ function submitExam(isAutoSubmit = false, forceDisqualified = false, submitMessa
   if (hasAttemptedThisQuarter(state.currentUser.employeeId, state.currentExam.quarter)) {
     alert("이미 제출된 응시 기록이 있습니다.");
     clearActiveExamRecord(state.currentUser.employeeId, state.currentExam.quarter);
-    state.currentExam = null;
-    state.view        = "candidate";
+    try { localStorage.removeItem("exam_answers_" + state.currentUser.employeeId); } catch(e) {}
+    state.currentExam  = null;
+    state.view         = "candidate";
     state.isSubmitting = false;
     renderCandidateDashboard();
     return;
@@ -3058,6 +3106,8 @@ function submitExam(isAutoSubmit = false, forceDisqualified = false, submitMessa
     clearActiveExamRecord(state.currentUser.employeeId, state.currentExam.quarter);
     savePersistentData();
     appendResultToSheet(result, submitLog);
+    // §6: 제출 완료 후 localStorage 임시 답안 삭제
+    try { localStorage.removeItem("exam_answers_" + result.employeeId); } catch(e) {}
   }
 
   state.lastResult   = result;
@@ -3589,7 +3639,7 @@ function _buildUserRowsHtml(rows) {
   });
   // 정렬 적용
   const sorted = _sortUsers(unique);
-  if (!sorted.length) return `<tr><td colspan="11" class="empty">조건에 맞는 응시자가 없습니다.</td></tr>`;
+  if (!sorted.length) return `<tr><td colspan="13" class="empty">조건에 맞는 응시자가 없습니다.</td></tr>`;
 
   return sorted.map(user => {
     const attempted  = hasAttemptedThisQuarter(user.employeeId);
@@ -3600,12 +3650,12 @@ function _buildUserRowsHtml(rows) {
     const tabCount   = latest?.tabSwitchCount ?? (isActive ? (getActiveExamRecord(user.employeeId)?.exam?.tabSwitchCount ?? 0) : 0);
     const disq       = latest?.disqualified || false;
 
-    // 응시 상태 뱃지
+    // §12: 실격 > 제출 완료 > 응시 중 > 응시 전 우선순위
     let statusBadge;
-    if (disq)          statusBadge = `<span class="badge danger">🚫 실격</span>`;
-    else if (isActive) statusBadge = `<span class="badge warning">🟡 응시 중</span>`;
-    else if (attempted) statusBadge = `<span class="badge success">✅ 제출 완료</span>`;
-    else               statusBadge = `<span class="badge">응시 전</span>`;
+    if (disq)           statusBadge = `<span class="status-badge status-disqualified">🚫 실격</span>`;
+    else if (attempted) statusBadge = `<span class="status-badge status-submitted">✅ 제출 완료</span>`;
+    else if (isActive)  statusBadge = `<span class="status-badge status-progress">🟡 응시 중</span>`;
+    else                statusBadge = `<span class="status-badge status-ready">응시 전</span>`;
 
     // 합격 여부
     let passBadge = "-";
@@ -3632,17 +3682,27 @@ function _buildUserRowsHtml(rows) {
 
     const phone = escapeHtml(user.phone || "-");
 
+    const activeRec = getActiveExamRecord(user.employeeId);
+    const startedAt  = latest?.startedAt
+      ? formatDateTime(latest.startedAt)
+      : (activeRec?.exam?.startedAt ? formatDateTime(activeRec.exam.startedAt) : "-");
+    const submittedAt  = latest ? formatDateTime(latest.submittedAt) : "-";
+    const updatedAt    = latest
+      ? formatDateTime(latest.submittedAt)
+      : (activeRec?.updatedAt ? formatDateTime(activeRec.updatedAt) : "-");
     return `<tr style="${disq ? "background:rgba(194,65,12,.06)" : ""}">
       <td><span style="font-size:12px;font-weight:700;padding:2px 8px;border-radius:99px;${typeColor}">${escapeHtml(userType)}</span></td>
-      <td>${escapeHtml(user.department)}</td>
+      <td>${escapeHtml(user.department) || "-"}</td>
       <td><strong>${escapeHtml(user.name)}</strong></td>
       <td style="font-size:13px;color:var(--muted)">${phone}</td>
       <td>${statusBadge}</td>
       <td>${latest ? `<strong>${latest.percentageScore}점</strong>` : "-"}</td>
       <td>${passBadge}</td>
-      <td style="font-size:12px">${latest ? formatDateTime(latest.submittedAt) : "-"}</td>
-      <td style="text-align:center">${tabBadge}</td>
+      <td style="text-align:center" class="${tabCount >= examSettings.tabSwitchLimit ? 'leave-warning' : ''}">${tabBadge}</td>
       <td>${disqBadge}</td>
+      <td style="font-size:12px">${startedAt}</td>
+      <td style="font-size:12px">${submittedAt}</td>
+      <td style="font-size:12px">${updatedAt}</td>
       <td style="white-space:nowrap">
         <button class="btn small" type="button" onclick="resetCandidateRecords('${user.employeeId}')">초기화</button>
         <button class="btn small danger" type="button" onclick="deleteCandidate('${user.employeeId}')">삭제</button>
@@ -3679,15 +3739,26 @@ function bindUserSearch() {
     if (!el) return;
     el.addEventListener("change", () => { refreshUserTable(); });
   });
-  // 응시 중 상태 자동 갱신 (10초 주기, 로컬 메모리만 읽음 — 시험자에 영향 없음)
-  clearInterval(_userTableRefreshInterval);
-  _userTableRefreshInterval = setInterval(() => {
+  // §14: 자동갱신 7초, setInterval 중복 등록 방지
+  startAdminAutoRefresh();
+}
+
+function startAdminAutoRefresh() {
+  if (window._adminRefreshTimer) clearInterval(window._adminRefreshTimer);
+  window._adminRefreshTimer = setInterval(() => {
     if (state.adminSection === "users" && document.getElementById("userTbody")) {
       refreshUserTable();
     } else {
-      clearInterval(_userTableRefreshInterval);
+      stopAdminAutoRefresh();
     }
-  }, 10000);
+  }, 7000);
+}
+
+function stopAdminAutoRefresh() {
+  if (window._adminRefreshTimer) {
+    clearInterval(window._adminRefreshTimer);
+    window._adminRefreshTimer = null;
+  }
 }
 
 function renderUserManager() {
@@ -3732,7 +3803,7 @@ function renderUserManager() {
         <div class="field">
           <label>응시 상태</label>
           <select id="userStatusSelect" onchange="state.filters.userStatus=this.value; refreshUserTable();">
-            ${["전체","응시 완료","미응시","응시 중"].map(v => `<option value="${v}" ${state.filters.userStatus===v?"selected":""}>${v}</option>`).join("")}
+            ${["전체","응시 전","응시 중","제출 완료","실격"].map(v => `<option value="${v}" ${state.filters.userStatus===v?"selected":""}>${v}</option>`).join("")}
           </select>
         </div>
         <button class="btn" type="button" onclick="resetUserFilters()">초기화</button>
@@ -3743,8 +3814,9 @@ function renderUserManager() {
           <thead>
             <tr>
               <th>구분</th><th>소속</th><th>성명</th><th>연락처</th>
-              <th>응시 상태</th><th>점수</th><th>합격 여부</th><th>응시 일시</th>
-              <th>이탈</th><th>실격/부정</th><th>관리</th>
+              <th>응시상태</th><th>점수</th><th>합격여부</th>
+              <th>화면이탈횟수</th><th>실격여부</th>
+              <th>시작일시</th><th>제출일시</th><th>최종수정일시</th><th>관리</th>
             </tr>
           </thead>
           <tbody id="userTbody">
@@ -3767,10 +3839,13 @@ function filterUsers() {
     const matchesKeyword = !keyword || keywordMatch(user.department, keyword) || keywordMatch(user.name, keyword);
     const matchesType    = state.filters.userType === "전체" || userType === state.filters.userType;
     const matchesDept    = state.filters.userDepartment === "전체" || user.department === state.filters.userDepartment;
+    const disqForFilter  = getLatestResult(user.employeeId)?.disqualified || false;
     const matchesStatus  = state.filters.userStatus === "전체" ||
-      (state.filters.userStatus === "응시 완료" && attempted) ||
-      (state.filters.userStatus === "미응시"    && !attempted) ||
-      (state.filters.userStatus === "응시 중"   && isExamActive);
+      (state.filters.userStatus === "제출 완료" && attempted && !disqForFilter) ||
+      (state.filters.userStatus === "응시 완료" && attempted && !disqForFilter) ||
+      (state.filters.userStatus === "미응시"    && !attempted && !isExamActive) ||
+      (state.filters.userStatus === "응시 중"   && isExamActive && !disqForFilter) ||
+      (state.filters.userStatus === "실격"      && disqForFilter);
     return matchesKeyword && matchesType && matchesDept && matchesStatus;
   });
 }
