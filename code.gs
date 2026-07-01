@@ -144,6 +144,72 @@ function saveAppData(snapshot) {
   }
 }
 
+function resetCandidateRecordsBackend(payload) {
+  const employeeId = payload && payload.employeeId;
+  if (!employeeId) {
+    return { ok: false, message: "employeeId가 없습니다." };
+  }
+
+  const lock = LockService.getScriptLock();
+
+  try {
+    const gotLock = lock.tryLock(10000);
+    if (!gotLock) {
+      return {
+        ok: false,
+        retry: true,
+        message: "다른 사용자가 저장 중입니다. 잠시 후 다시 시도하세요."
+      };
+    }
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const dataSheet = getOrCreateSheet(ss, SHEET_NAME, []);
+    const raw = dataSheet.getRange("B1").getValue();
+
+    let data = {};
+    try {
+      data = raw ? JSON.parse(raw) : {};
+    } catch (e) {
+      data = {};
+    }
+
+    data.examResults = Array.isArray(data.examResults)
+      ? data.examResults.filter(r => r.employeeId !== employeeId)
+      : [];
+
+    data.activityLogs = Array.isArray(data.activityLogs)
+      ? data.activityLogs.filter(l => l.employeeId !== employeeId)
+      : [];
+
+    data.activeExams = Array.isArray(data.activeExams)
+      ? data.activeExams.filter(a => {
+          const key = a.key || "";
+          const examEmployeeId = a.employeeId || a.exam?.employeeId || "";
+          return examEmployeeId !== employeeId && !key.startsWith(employeeId + "__");
+        })
+      : [];
+
+    dataSheet.getRange("B1").setValue(JSON.stringify(data));
+
+    // 응시결과/로그 시트 반영은 지연 동기화
+    scheduleSyncTrigger_();
+
+    return {
+      ok: true,
+      data
+    };
+
+  } catch (e) {
+    return {
+      ok: false,
+      message: e.message
+    };
+  } finally {
+    try {
+      lock.releaseLock();
+    } catch (e) {}
+  }
+}
 
 // ── 시트 동기화 트리거 등록 (1분 내 1회, 중복 방지) ──────────────────────────
 function scheduleSyncTrigger_() {
@@ -200,12 +266,12 @@ function mergeAppData(existing, incoming) {
   ).slice(-500);
 
   // 진행 중 시험: employeeId+quarter 기준 최신 updatedAt만 유지
-  merged.activeExams = mergeById(
-    existing.activeExams || [],
-    incoming.activeExams || [],
-    e => e.employeeId + "_" + e.quarter,
-    e => new Date(e.updatedAt || 0).getTime()
-  );
+merged.activeExams = mergeById(
+  existing.activeExams || [],
+  incoming.activeExams || [],
+  e => e.key || ((e.employeeId || e.exam?.employeeId || "") + "__" + (e.quarter || e.exam?.quarter || "")),
+  e => new Date(e.updatedAt || 0).getTime()
+);
 
   return merged;
 }
@@ -416,10 +482,12 @@ function doPost(e) {
     const payload = body.payload || body.data || body;
     let result;
 
-    if      (action === "getAppData")          result = getAppData();
-    else if (action === "saveAppData")          result = saveAppData(payload);
-    else if (action === "appendExamSubmission") result = appendExamSubmission(payload.result || payload, payload.log);
-    else result = { ok: false, message: "Unknown action: " + action };
+if      (action === "getAppData")               result = getAppData();
+else if (action === "saveAppData")              result = saveAppData(payload);
+else if (action === "appendExamSubmission")     result = appendExamSubmission(payload.result || payload, payload.log);
+else if (action === "resetCandidateRecords")    result = resetCandidateRecordsBackend(payload);
+else if (action === "adminLogin")               result = adminLogin(payload);
+else result = { ok: false, message: "Unknown action: " + action };
 
     output.setContent(JSON.stringify({ ok: true, data: result }));
   } catch (err) {
