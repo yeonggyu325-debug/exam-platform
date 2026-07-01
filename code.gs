@@ -18,6 +18,82 @@ function getOrCreateSheet(ss, name, headers) {
   return sheet;
 }
 
+
+// ── 관리자 인증 (서버 측 검증) ──────────────────────────────────────────────
+function adminLogin(payload) {
+  // 환경변수처럼 관리: PropertiesService (Script Properties에서 ADMIN_PW 설정)
+  const props = PropertiesService.getScriptProperties();
+  const adminPw = props.getProperty("ADMIN_PW") || "";
+  const adminId = props.getProperty("ADMIN_ID") || "ADM-0001";
+
+  if (!adminPw) {
+    // Script Properties 미설정 시 fallback 거부
+    return { ok: false, message: "서버 관리자 설정이 완료되지 않았습니다." };
+  }
+  if (payload.password !== adminPw) {
+    Utilities.sleep(500); // brute-force 지연
+    return { ok: false, message: "관리자 비밀번호가 올바르지 않습니다." };
+  }
+  // 세션 토큰 발급 (단순 HMAC 대용: 시간+비밀키)
+  const ts = Date.now();
+  const token = Utilities.base64Encode(
+    Utilities.computeHmacSha256Signature(
+      String(ts),
+      adminPw + "HNIRUJA_SALT"
+    )
+  );
+  return { ok: true, token, ts, adminId };
+}
+
+// ── 토큰 검증 유틸 ──────────────────────────────────────────────────────────
+function verifyAdminToken_(token, ts) {
+  const props = PropertiesService.getScriptProperties();
+  const adminPw = props.getProperty("ADMIN_PW") || "";
+  if (!adminPw || !token || !ts) return false;
+  const now = Date.now();
+  if (now - Number(ts) > 8 * 60 * 60 * 1000) return false; // 8시간 만료
+  const expected = Utilities.base64Encode(
+    Utilities.computeHmacSha256Signature(String(ts), adminPw + "HNIRUJA_SALT")
+  );
+  return token === expected;
+}
+
+
+// ── 관리자 로그인 서버 검증 ────────────────────────────────────────────────────
+// 비밀번호는 GAS 스크립트 속성에 저장 (Properties Service)
+// 최초 설정: GAS 편집기에서 setAdminPassword("원하는비밀번호") 실행
+function setAdminPassword(pw) {
+  PropertiesService.getScriptProperties().setProperty("ADMIN_PW_HASH", _hashPw(pw));
+  return { ok: true };
+}
+
+function adminLogin(payload) {
+  try {
+    const stored = PropertiesService.getScriptProperties().getProperty("ADMIN_PW_HASH");
+    // 아직 setAdminPassword 실행 전이면 기본값(ehs1985) 허용
+    const fallback = _hashPw("ehs1985");
+    const hash = stored || fallback;
+    if (!payload || !payload.password) return { ok: false, message: "비밀번호를 입력하세요." };
+    const input = _hashPw(String(payload.password));
+    if (input !== hash) return { ok: false, message: "비밀번호가 일치하지 않습니다." };
+    // 로그인 성공 시 현재 앱 데이터도 함께 반환 (추가 loadRemoteData 호출 불필요 → 속도 최적화)
+    const data = getAppData();
+    return { ok: true, data };
+  } catch(e) {
+    return { ok: false, message: e.message };
+  }
+}
+
+// 단방향 해시 (Apps Script에서 SHA-256)
+function _hashPw(pw) {
+  const bytes = Utilities.computeDigest(
+    Utilities.DigestAlgorithm.SHA_256,
+    pw,
+    Utilities.Charset.UTF_8
+  );
+  return bytes.map(b => ('0' + (b & 0xff).toString(16)).slice(-2)).join('');
+}
+
 // ── 전체 데이터 읽기 ──────────────────────────────────────────────────────────
 function getAppData() {
   try {
@@ -33,27 +109,119 @@ function getAppData() {
 
 // ── 전체 데이터 저장 + 각 시트 동기화 ───────────────────────────────────────
 function saveAppData(snapshot) {
+  const lock = LockService.getScriptLock();
   try {
+    // 동시 쓰기 충돌 방지: 최대 10초 대기 후 락 획득
+    const gotLock = lock.tryLock(10000);
+    if (!gotLock) {
+      return { ok: false, message: "다른 사용자가 저장 중입니다. 잠시 후 재시도합니다.", retry: true };
+    }
+
     const ss = SpreadsheetApp.getActiveSpreadsheet();
 
-    // AppData 시트: JSON 원본 백업
+    // 서버에 저장된 최신 데이터를 먼저 읽어 병합 (Last-Write-Wins 방지)
     let dataSheet = ss.getSheetByName(SHEET_NAME);
     if (!dataSheet) {
       dataSheet = ss.insertSheet(SHEET_NAME);
       dataSheet.getRange("A1").setValue("data");
     }
-    dataSheet.getRange("B1").setValue(JSON.stringify(snapshot));
+    const rawExisting = dataSheet.getRange("B1").getValue();
+    let existing = {};
+    try { existing = rawExisting ? JSON.parse(rawExisting) : {}; } catch (e) { existing = {}; }
 
-    if (Array.isArray(snapshot.users))               syncUsersSheet(ss, snapshot.users);
-    if (snapshot.examSettings)                        syncSettingsSheet(ss, snapshot.examSettings);
-    if (Array.isArray(snapshot.examResults))          syncResultsSheet(ss, snapshot.examResults);
-    if (Array.isArray(snapshot.questionBank))         syncQuestionBankSheet(ss, snapshot.questionBank);
-    if (Array.isArray(snapshot.managedAffiliations))  syncAffiliationsSheet(ss, snapshot.managedAffiliations);
+    const merged = mergeAppData(existing, snapshot);
+
+    dataSheet.getRange("B1").setValue(JSON.stringify(merged));
+
+    // 무거운 시트 sync는 1분 내 트리거로 비동기 실행 (타임아웃 방지)
+    scheduleSyncTrigger_();
 
     return { ok: true };
   } catch (e) {
     return { ok: false, message: e.message };
+  } finally {
+    lock.releaseLock();
   }
+}
+
+
+// ── 시트 동기화 트리거 등록 (1분 내 1회, 중복 방지) ──────────────────────────
+function scheduleSyncTrigger_() {
+  const triggers = ScriptApp.getProjectTriggers();
+  const already = triggers.some(t => t.getHandlerFunction() === "runDeferredSheetSync");
+  if (!already) {
+    ScriptApp.newTrigger("runDeferredSheetSync")
+      .timeBased().after(30000).create();
+  }
+}
+
+function runDeferredSheetSync() {
+  // 기존 이 트리거 삭제
+  ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === "runDeferredSheetSync")
+    .forEach(t => ScriptApp.deleteTrigger(t));
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET_NAME);
+  if (!sheet) return;
+  const raw = sheet.getRange("B1").getValue();
+  if (!raw) return;
+  let data;
+  try { data = JSON.parse(raw); } catch(e) { return; }
+
+  if (Array.isArray(data.users))               syncUsersSheet(ss, data.users);
+  if (data.examSettings)                        syncSettingsSheet(ss, data.examSettings);
+  if (Array.isArray(data.examResults))          syncResultsSheet(ss, data.examResults);
+  if (Array.isArray(data.questionBank))         syncQuestionBankSheet(ss, data.questionBank);
+  if (Array.isArray(data.managedAffiliations))  syncAffiliationsSheet(ss, data.managedAffiliations);
+}
+
+// 동시 저장 시 데이터 손실 방지를 위한 병합 로직
+// - 배열(id 기반 목록)은 id별로 최신 항목을 합침
+// - examResults, activeExams, activityLogs는 누적/병합
+// - questionBank, users, examSettings, managedAffiliations는 보낸 쪽이 최신 전체 목록이라고 가정(관리자 화면에서만 변경)
+function mergeAppData(existing, incoming) {
+  const merged = Object.assign({}, existing, incoming);
+
+  // 응시 결과: employeeId+quarter 기준 최신 1건만 유지, 누적 병합
+  merged.examResults = mergeById(
+    existing.examResults || [],
+    incoming.examResults || [],
+    r => r.employeeId + "_" + r.quarter,
+    r => new Date(r.submittedAt || 0).getTime()
+  );
+
+  // 활동 로그: logId 기준 합치고 최신 500개만 유지
+  merged.activityLogs = mergeById(
+    existing.activityLogs || [],
+    incoming.activityLogs || [],
+    l => l.logId,
+    l => new Date(l.createdAt || 0).getTime()
+  ).slice(-500);
+
+  // 진행 중 시험: employeeId+quarter 기준 최신 updatedAt만 유지
+  merged.activeExams = mergeById(
+    existing.activeExams || [],
+    incoming.activeExams || [],
+    e => e.employeeId + "_" + e.quarter,
+    e => new Date(e.updatedAt || 0).getTime()
+  );
+
+  return merged;
+}
+
+// key 함수로 두 배열을 합치고, 동일 key는 score가 더 큰(최신) 항목을 채택
+function mergeById(arrA, arrB, keyFn, scoreFn) {
+  const map = new Map();
+  arrA.forEach(item => map.set(keyFn(item), item));
+  arrB.forEach(item => {
+    const k = keyFn(item);
+    const prev = map.get(k);
+    if (!prev || scoreFn(item) >= scoreFn(prev)) {
+      map.set(k, item);
+    }
+  });
+  return Array.from(map.values());
 }
 
 // ── 응시자목록 ────────────────────────────────────────────────────────────────
@@ -200,6 +368,9 @@ function syncAffiliationsSheet(ss, affiliations) {
 
 // ── 응시결과 단건 추가 ────────────────────────────────────────────────────────
 function appendExamSubmission(result, log) {
+  const lock = LockService.getScriptLock();
+  lock.tryLock(8000);
+  try {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const headers = [
