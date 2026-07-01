@@ -1694,26 +1694,39 @@ function applyRemoteData(data) {
   if (data && Array.isArray(data.questionBank)) questionBank = data.questionBank;
   if (data && data.examSettings) {
     examSettings = { ...examSettings, ...data.examSettings };
-    // categoryQuota에서 실제 문제은행에 없는 카테고리 자동 정리
     cleanOrphanQuota();
   }
   if (data && Array.isArray(data.examResults)) examResults = data.examResults;
   if (data && Array.isArray(data.activityLogs)) activityLogs = data.activityLogs;
   if (data && Array.isArray(data.activeExams)) activeExams = data.activeExams;
   if (data && Array.isArray(data.managedAffiliations)) {
-    // 구버전(문자열 배열) → 신버전(객체 배열) 자동 마이그레이션
     managedAffiliations = data.managedAffiliations.map(a =>
       typeof a === 'string' ? { name: a, type: '이루자' } : a
     );
   }
+  // 시험 진행 중인 응시자만 로컬 activeExam 병합 (초기화된 응시자는 제외)
   mergeLocalActiveExams();
+  // 서버 데이터를 로컬스토리지에 즉시 반영 → 다음 로드 시 최신 서버 상태 유지
+  _overwriteLocalCache();
+}
+
+function _overwriteLocalCache() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    const base = raw ? JSON.parse(raw) : {};
+    // examResults, activeExams, activityLogs는 서버 권위 데이터로 덮어씀
+    base.examResults  = examResults;
+    base.activeExams  = activeExams;
+    base.activityLogs = activityLogs;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(base));
+  } catch(e) {}
 }
 
 function loadRemoteData(done) {
   if (isAppsScriptRuntime()) {
     google.script.run
       .withSuccessHandler(data => {
-        try { applyRemoteData(data); done(true); }
+        try { applyRemoteData(data); state._remoteLoaded = true; done(true); }
         catch (error) { console.warn("스프레드시트 데이터 복원에 실패했습니다.", error); done(false); }
       })
       .withFailureHandler(error => {
@@ -1727,7 +1740,7 @@ function loadRemoteData(done) {
 
   if (isExternalApiRuntime()) {
     callExternalApi("getAppData")
-      .then(data => { applyRemoteData(data); done(true); })
+      .then(data => { applyRemoteData(data); state._remoteLoaded = true; done(true); })
       .catch(error => {
         console.warn("외부 API 연결에 실패했습니다. 브라우저 저장소로 전환합니다.", error);
         loadPersistentData();
@@ -2293,7 +2306,8 @@ function handleLogin(event) {
       const currentQuarterResult = examResults
         .filter(result => result.employeeId === candidate.employeeId && result.quarter === getCurrentQuarter())
         .sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt))[0];
-      if (currentQuarterResult) {
+      // 서버 동기화 완료(또는 오프라인) 후에만 결과화면 진입
+      if (currentQuarterResult && (state._remoteLoaded || (!isAppsScriptRuntime() && !isExternalApiRuntime()))) {
         state.lastResult = currentQuarterResult;
         state.view = "result";
         render();
@@ -2366,7 +2380,8 @@ function renderCandidateDashboard() {
   const attemptedResult = examResults
     .filter(r => r.employeeId === user.employeeId && r.quarter === quarter)
     .sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt))[0];
-  if (attemptedResult) {
+  // 서버 동기화 완료 후에만 결과화면으로 전환 (로컬캐시만 있으면 무시)
+  if (attemptedResult && state._remoteLoaded) {
     state.lastResult = attemptedResult;
     state.view = "result";
     renderResultScreen();
