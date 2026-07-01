@@ -371,7 +371,6 @@ function appendExamSubmission(result, log) {
   const lock = LockService.getScriptLock();
   lock.tryLock(8000);
   try {
-  try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const headers = [
       "결과ID","소속","성명","분기","점수","정답수","총문항",
@@ -399,7 +398,10 @@ function appendExamSubmission(result, log) {
 
     return { ok: true };
   } catch (e) {
+    console.error("appendExamSubmission error:", e);
     return { ok: false, message: e.message };
+  } finally {
+    lock.releaseLock();
   }
 }
 
