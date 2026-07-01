@@ -425,24 +425,23 @@ function resetAllData() {
 
 function doPost(e) {
   try {
+    // e.postData가 없는 경우 방어
+    if (!e || !e.postData || !e.postData.contents) {
+      return ContentService.createTextOutput(
+        JSON.stringify({ ok: false, message: "body가 비어있습니다." })
+      ).setMimeType(ContentService.MimeType.JSON);
+    }
+
     const body = JSON.parse(e.postData.contents);
     const action = body.action;
     const payload = body.payload || {};
 
     let result;
     switch (action) {
-      case "getAppData":
-        result = getAppData();
-        break;
-      case "saveAppData":
-        result = saveAppData(payload);
-        break;
-      case "appendExamSubmission":
-        result = appendExamSubmission(payload.result, payload.log);
-        break;
-      case "adminLogin":
-        result = adminLogin(payload);
-        break;
+      case "getAppData":           result = getAppData();                               break;
+      case "saveAppData":          result = saveAppData(payload);                       break;
+      case "appendExamSubmission": result = appendExamSubmission(payload.result, payload.log); break;
+      case "adminLogin":           result = adminLogin(payload);                        break;
       default:
         return ContentService.createTextOutput(
           JSON.stringify({ ok: false, message: "알 수 없는 action: " + action })
