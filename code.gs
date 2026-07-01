@@ -1,3 +1,57 @@
+// doGet — HTML 서빙 없이 API 상태만 반환
+function doGet(e) {
+  return ContentService.createTextOutput(
+    JSON.stringify({ ok: true, message: "H&IRUJA GAS API is running." })
+  ).setMimeType(ContentService.MimeType.JSON);
+}
+
+// doPost — Vercel /api/gas에서 오는 모든 요청 처리
+function doPost(e) {
+  try {
+    if (!e || !e.postData || !e.postData.contents) {
+      return ContentService.createTextOutput(
+        JSON.stringify({ ok: false, message: "body가 비어있습니다." })
+      ).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    const body = JSON.parse(e.postData.contents);
+    const action = body.action;
+    const payload = body.payload || {};
+
+    Logger.log("doPost action: " + action);
+
+    let result;
+    switch (action) {
+      case "getAppData":
+        result = getAppData();
+        break;
+      case "saveAppData":
+        result = saveAppData(payload);
+        break;
+      case "appendExamSubmission":
+        result = appendExamSubmission(payload.result, payload.log);
+        break;
+      case "adminLogin":
+        result = adminLogin(payload);
+        break;
+      default:
+        return ContentService.createTextOutput(
+          JSON.stringify({ ok: false, message: "알 수 없는 action: " + action })
+        ).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    return ContentService.createTextOutput(
+      JSON.stringify({ ok: true, data: result })
+    ).setMimeType(ContentService.MimeType.JSON);
+
+  } catch (err) {
+    Logger.log("doPost error: " + err.message);
+    return ContentService.createTextOutput(
+      JSON.stringify({ ok: false, message: err.message })
+    ).setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════
 // H&IRUJA 안전담당자 자격인증제 · Code.gs v5
 // index.html 실제 호출 구조와 100% 호환 버전
@@ -393,14 +447,6 @@ function syncAffiliationsSheet_(ss, affiliations) {
     typeof a === "string" ? [a, "이루자"] : [a.name||"", a.type||"이루자"]
   );
   sheet.getRange(2, 1, rows.length, 2).setValues(rows);
-}
-
-// ── 웹앱 진입점 ───────────────────────────────────────────────────────────────
-function doGet(e) {
-  return HtmlService
-    .createHtmlOutputFromFile("index")
-    .setTitle("안전담당자 자격인증제")
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
 // ── 디버깅용 (GAS 에디터에서 직접 실행) ──────────────────────────────────────
