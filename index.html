@@ -1072,6 +1072,28 @@ function getDepartments() {
   return [...new Set(getCandidateUsers().map(user => user.department))].sort();
 }
 
+function getAffiliationTypeByDepartment(department) {
+  const affil = managedAffiliations.find(a => (typeof a === "string" ? a : a.name) === department);
+  if (!affil) return "이루자";
+  return typeof affil === "string" ? "이루자" : (affil.type || "이루자");
+}
+
+function compareCandidateOrder(a, b) {
+  const typeA = getAffiliationTypeByDepartment(a.department);
+  const typeB = getAffiliationTypeByDepartment(b.department);
+
+  const typeRank = { "이루자": 1, "협력사": 2 };
+  const rankA = typeRank[typeA] || 99;
+  const rankB = typeRank[typeB] || 99;
+
+  if (rankA !== rankB) return rankA - rankB;
+
+  const depCompare = String(a.department || "").localeCompare(String(b.department || ""), "ko");
+  if (depCompare !== 0) return depCompare;
+
+  return String(a.name || "").localeCompare(String(b.name || ""), "ko");
+}
+
 function getCategories() {
   return [...new Set(questionBank.map(q => q.category))].sort();
 }
@@ -1105,15 +1127,27 @@ function getActiveExamRecord(employeeId, quarter = getCurrentQuarter()) {
 
 function upsertActiveExamRecord(exam, extra = {}) {
   if (!exam) return;
+
   const key = getActiveExamKey(exam.employeeId, exam.quarter);
+  const currentUser = users.find(u => u.employeeId === exam.employeeId) || state.currentUser || {};
+
   const record = {
     key,
+    employeeId: exam.employeeId,
+    quarter: exam.quarter,
+    department: currentUser.department || "",
+    name: currentUser.name || "",
     status: "in_progress",
     updatedAt: new Date().toISOString(),
+    startedAt: exam.startedAt || "",
     remainingSeconds: state.remainingSeconds,
+    answeredCount: Array.isArray(exam.answers) ? exam.answers.filter(a => a !== null).length : 0,
+    totalCount: Array.isArray(exam.questions) ? exam.questions.length : 0,
+    tabSwitchCount: Number(exam.tabSwitchCount || 0),
     exam: JSON.parse(JSON.stringify(exam)),
     ...extra
   };
+
   const index = activeExams.findIndex(item => item.key === key);
   if (index >= 0) activeExams[index] = { ...activeExams[index], ...record };
   else activeExams.push(record);
@@ -2275,9 +2309,21 @@ function renderUserManager() {
 
       <div class="table-wrap">
         <table>
-          <thead>
-            <tr><th>소속</th><th>성명</th><th>이번 분기 응시 여부</th><th>최근 점수</th><th>최근 응시일</th><th>최근 상태</th><th>자격 유효기간</th><th>관리</th></tr>
-          </thead>
+<thead>
+  <tr>
+    <th>구분</th>
+    <th>소속</th>
+    <th>성명</th>
+    <th>연락처</th>
+    <th>응시 상태</th>
+    <th>점수</th>
+    <th>합격 여부</th>
+    <th>응시 일시</th>
+    <th>화면 전환</th>
+    <th>실격/부정</th>
+    <th>관리</th>
+  </tr>
+</thead>
           <tbody>
             ${rows.map(user => {
               const attempted = hasAttemptedThisQuarter(user.employeeId);
@@ -2306,16 +2352,36 @@ function renderUserManager() {
 }
 
 function filterUsers() {
-  return getCandidateUsers().filter(user => {
-    const keyword         = state.filters.userSearch.trim().toLowerCase();
-    const attempted       = hasAttemptedThisQuarter(user.employeeId);
-    const matchesKeyword  = !keyword || [user.department, user.name].some(v => v.toLowerCase().includes(keyword));
-    const matchesDept     = state.filters.userDepartment === "전체" || user.department === state.filters.userDepartment;
-    const matchesStatus   = state.filters.userStatus === "전체" ||
-      (state.filters.userStatus === "응시 완료" && attempted) ||
-      (state.filters.userStatus === "미응시"    && !attempted);
-    return matchesKeyword && matchesDept && matchesStatus;
-  });
+  return getCandidateUsers()
+    .filter(user => {
+      const keyword      = (state.filters.userSearch || "").trim();
+      const attempted    = hasAttemptedThisQuarter(user.employeeId);
+      const isExamActive = !!getActiveExamRecord(user.employeeId);
+      const userType     = getAffiliationTypeByDepartment(user.department);
+
+      const matchesKeyword =
+        !keyword ||
+        keywordMatch(user.department, keyword) ||
+        keywordMatch(user.name, keyword) ||
+        keywordMatch(user.phone || "", keyword);
+
+      const matchesType =
+        state.filters.userType === "전체" ||
+        userType === state.filters.userType;
+
+      const matchesDept =
+        state.filters.userDepartment === "전체" ||
+        user.department === state.filters.userDepartment;
+
+      const matchesStatus =
+        state.filters.userStatus === "전체" ||
+        (state.filters.userStatus === "응시 완료" && attempted) ||
+        (state.filters.userStatus === "미응시" && !attempted && !isExamActive) ||
+        (state.filters.userStatus === "응시 중" && isExamActive);
+
+      return matchesKeyword && matchesType && matchesDept && matchesStatus;
+    })
+    .sort(compareCandidateOrder);
 }
 
 function resetUserFilters() {
