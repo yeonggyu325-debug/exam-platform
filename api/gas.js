@@ -1,4 +1,4 @@
-const GAS_URL = "https://script.google.com/macros/s/AKfycbyRhmxkBHyPqaD2dCFK46g0mUS2c0k6t5rJSj6fY61xiv3v4TAzhxIPtaFjX153OHcs/exec";
+const GAS_URL = process.env.GAS_EXEC_URL;
 
 export const config = { api: { bodyParser: true } };
 
@@ -18,27 +18,13 @@ export default async function handler(req, res) {
       try { body = JSON.parse(raw); } catch { body = {}; }
     }
 
-    // redirect: "manual"로 직접 처리 — POST→GET 변환 방지
+    // GAS는 POST → 302 → GET(자동) 구조. redirect: "follow"로 Node fetch가 알아서 처리
     const response = await fetch(GAS_URL, {
       method: "POST",
-      headers: { "Content-Type": "text/plain" },  // ← application/json → text/plain (GAS 호환)
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
       body: JSON.stringify(body),
-      redirect: "manual"  // ← follow 대신 manual
+      redirect: "follow"   // ← manual 아닌 follow. POST→GET 자동 전환이 정상 동작
     });
-
-    // 302 redirect면 Location으로 다시 POST
-    if (response.status === 302 || response.status === 301) {
-      const location = response.headers.get("location");
-      const response2 = await fetch(location, {
-        method: "POST",
-        headers: { "Content-Type": "text/plain" },
-        body: JSON.stringify(body)
-      });
-      const text2 = await response2.text();
-      let data2;
-      try { data2 = JSON.parse(text2); } catch { data2 = { ok: false, message: text2 }; }
-      return res.status(200).json(data2);
-    }
 
     const text = await response.text();
     let data;
