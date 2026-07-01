@@ -1724,13 +1724,8 @@ function applyRemoteData(data) {
 function overwriteLocalCache() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      users,
-      questionBank,
-      examSettings,
-      examResults,
-      activityLogs,
-      activeExams,
-      managedAffiliations
+      users, questionBank, examSettings,
+      examResults, activityLogs, activeExams, managedAffiliations
     }));
   } catch(e) {}
 }
@@ -3959,30 +3954,17 @@ function addUser(event) {
 function resetCandidateRecords(employeeId) {
   const user = users.find(item => item.employeeId === employeeId);
   if (!user) return;
-  if (!confirm(`${user.department} ${user.name} 응시자의 시험 기록과 로그를 초기화할까요?\n\n재접속 시 처음부터 응시 가능합니다.`)) return;
-
-  // 메모리에서 제거
-  examResults  = examResults.filter(r => r.employeeId !== employeeId);
-  activityLogs = activityLogs.filter(l => l.employeeId !== employeeId);
-  activeExams  = activeExams.filter(a => !a.key?.startsWith(employeeId + '_'));
-
-  // 로컬스토리지에서도 해당 응시자 캐시 제거 (재접속 시 결과화면 복귀 방지)
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const localData = JSON.parse(raw);
-      if (Array.isArray(localData.examResults))
-        localData.examResults = localData.examResults.filter(r => r.employeeId !== employeeId);
-      if (Array.isArray(localData.activityLogs))
-        localData.activityLogs = localData.activityLogs.filter(l => l.employeeId !== employeeId);
-      if (Array.isArray(localData.activeExams))
-        localData.activeExams = localData.activeExams.filter(a => !a.key?.startsWith(employeeId + '_'));
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(localData));
-    }
-  } catch(e) { console.warn("로컬 초기화 실패:", e); }
-
-  // 서버에도 즉시 반영
-  savePersistentData();
+  if (!confirm(`${user.department} ${user.name}의 응시 기록을 초기화하시겠습니까?`)) return;
+  examResults = examResults.filter(result => result.employeeId !== employeeId);
+  activityLogs = activityLogs.filter(log => log.employeeId !== employeeId);
+  activeExams = activeExams.filter(a => !a.key?.startsWith(employeeId));
+  // localStorage 즉시 전체 덮어쓰기
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ users, questionBank, examSettings, examResults, activityLogs, activeExams, managedAffiliations })); } catch(e) {}
+  // GAS에도 전체 스냅샷 저장 (merge 없이 덮어쓰도록 강제)
+  if (isExternalApiRuntime()) {
+    callExternalApi('saveAppData', { users, questionBank, examSettings, examResults, activityLogs, activeExams, managedAffiliations })
+      .catch(e => console.warn('저장 실패', e));
+  }
   renderAdminDashboard();
 }
 
