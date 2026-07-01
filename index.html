@@ -1721,15 +1721,17 @@ function applyRemoteData(data) {
   _overwriteLocalCache();
 }
 
-function _overwriteLocalCache() {
+function overwriteLocalCache() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    const base = raw ? JSON.parse(raw) : {};
-    // examResults, activeExams, activityLogs는 서버 권위 데이터로 덮어씀
-    base.examResults  = examResults;
-    base.activeExams  = activeExams;
-    base.activityLogs = activityLogs;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(base));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      users,
+      questionBank,
+      examSettings,
+      examResults,
+      activityLogs,
+      activeExams,
+      managedAffiliations
+    }));
   } catch(e) {}
 }
 
